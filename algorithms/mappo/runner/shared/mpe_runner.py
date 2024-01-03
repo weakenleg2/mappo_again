@@ -21,6 +21,7 @@ class MPERunner(Runner):
   def dict_to_tensor(self, x, iterable = True):
     #obs_shape = self.envs.observation_space('agent_0').shape
     if iterable:
+    #   print(x[0])
       obs_shape = x[0]['agent_0'].shape
     else:
       obs_shape = ()
@@ -108,9 +109,10 @@ class MPERunner(Runner):
             print("average episode rewards is {}".format(
                 train_infos["average_episode_rewards"]))
             self.log_train(train_infos, total_num_steps)
+            wandb.log({"com_savings":1 - tot_comms / (self.episode_length * self.num_agents * self.n_rollout_threads)},total_num_steps)
 
           # eval
-        self.writter.add_scalar('communication_savings', 1 - tot_comms / (self.episode_length * self.num_agents * self.n_rollout_threads), episode)
+        # self.writter.add_scalar('communication_savings', 1 - tot_comms / (self.episode_length * self.num_agents * self.n_rollout_threads), episode)
         if episode % self.eval_interval == 0 and self.use_eval:
             self.eval(total_num_steps)
 

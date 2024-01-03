@@ -99,7 +99,7 @@ def main(args):
         os.makedirs(str(run_dir))
 
     # wandb
-    all_args.use_wandb = False
+    all_args.use_wandb = True
     if all_args.use_wandb:
         run = wandb.init(config=all_args,
                          project=all_args.env_name,

@@ -158,7 +158,7 @@ def get_config():
 
     # prepare parameters
     parser.add_argument("--algorithm_name", type=str,
-                        default='mappo', choices=["rmappo", "mappo"])
+                        default='rmappo', choices=["rmappo", "mappo"])
 
     parser.add_argument("--experiment_name", type=str, default="check", help="an identifier to distinguish different experiment.")
     parser.add_argument("--seed", type=int, default=1, help="Random seed for numpy/torch")
@@ -190,7 +190,7 @@ def get_config():
     parser.add_argument("--episode_length", type=int,
                         default=25, help="Max length for any episode")
     parser.add_argument("--n_trajectories", type=int,
-                        default=1, help="Number of trajectories to sample per thread")
+                        default=32, help="Number of trajectories to sample per thread")
 
     # network parameters
     parser.add_argument("--share_policy", action='store_false',
