@@ -159,8 +159,13 @@ class Runner(object):
         for agent_id in range(self.num_agents):
             for k, v in train_infos[agent_id].items():
                 infos[k][str(agent_id)] = v
+        # for k in infos.keys():
+        #     self.writter.add_scalars(k, infos[k], total_num_steps)
         for k in infos.keys():
-            self.writter.add_scalars(k, infos[k], total_num_steps)
+            if self.use_wandb:
+                wandb.log({k: infos[k]}, step=total_num_steps)
+            else:
+                self.writter.add_scalars(k, infos[k], total_num_steps)
 
     def log_env(self, env_infos, total_num_steps):
         for k, v in env_infos.items():

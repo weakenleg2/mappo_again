@@ -7,6 +7,7 @@ from algorithms.mappo.algorithms.utils.mlp import MLPBase
 from algorithms.mappo.algorithms.utils.rnn import RNNLayer
 from algorithms.mappo.algorithms.utils.act import ACTLayer
 from algorithms.mappo.algorithms.utils.popart import PopArt
+# main change here is 2 actors, one for control one for comm, and flatdim is for obs
 
 class R_Actor(nn.Module):
     """

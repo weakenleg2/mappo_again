@@ -190,13 +190,13 @@ def get_config():
     parser.add_argument("--episode_length", type=int,
                         default=25, help="Max length for any episode")
     parser.add_argument("--n_trajectories", type=int,
-                        default=32, help="Number of trajectories to sample per thread")
+                        default=100, help="Number of trajectories to sample per thread")
 
     # network parameters
-    parser.add_argument("--share_policy", action='store_false',
-                        default=True, help='Whether agent share the same policy')
-    parser.add_argument("--use_centralized_V", action='store_false',
-                        default=True, help="Whether to use centralized V function")
+    parser.add_argument("--share_policy", action='store_true',
+                        default=False, help='Whether agent share the same policy')
+    parser.add_argument("--use_centralized_V", action='store_true',
+                        default=False, help="Whether to use centralized V function")
     parser.add_argument("--stacked_frames", type=int, default=1,
                         help="Dimension of hidden layers for actor/critic networks")
     parser.add_argument("--use_stacked_frames", action='store_true',
@@ -222,7 +222,7 @@ def get_config():
     parser.add_argument("--use_naive_recurrent_policy", action='store_true',
                         default=False, help='Whether to use a naive recurrent policy')
     parser.add_argument("--use_recurrent_policy", action='store_true',
-                        default=False, help='use a recurrent policy')
+                        default=True, help='use a recurrent policy')
     parser.add_argument("--recurrent_N", type=int, default=1, help="The number of recurrent layers.")
     parser.add_argument("--data_chunk_length", type=int, default=10,
                         help="Time length of chunks used to train a recurrent_policy")
