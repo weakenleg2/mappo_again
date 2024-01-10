@@ -167,6 +167,7 @@ class SimpleEnv(AECEnv):
             self._set_action(action, agent,
                              self.action_spaces[agent.name])
             agent.action = agent.action_callback(agent, self.world)
+            # print("agent.action.c",agent.action.c)
             if agent.action.c[0] > agent.action.c[1]:
                 self.infos['comms'] += 1
 

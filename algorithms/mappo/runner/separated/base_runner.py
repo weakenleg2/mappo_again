@@ -75,6 +75,7 @@ class Runner(object):
         self.policy = []
         for agent_id in range(self.num_agents):
             share_observation_space = self.envs.share_observation_space if self.use_centralized_V else self.envs.observation_space('agent_0')
+            # print("self.envs.share_observation_space",self.envs.share_observation_space)
             # policy network
             po = Policy(self.all_args,
                         self.envs.observation_space('agent_0'),

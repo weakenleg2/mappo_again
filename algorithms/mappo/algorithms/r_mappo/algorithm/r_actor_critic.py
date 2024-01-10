@@ -66,6 +66,7 @@ class R_Actor(nn.Module):
         masks = check(masks).to(**self.tpdv)
         if available_actions is not None:
             available_actions = check(available_actions).to(**self.tpdv)
+        # print(obs)
 
         control_features = self.base_ctrl(obs)
         communication_features = self.base_com(obs)
@@ -81,6 +82,7 @@ class R_Actor(nn.Module):
         com_actions, com_action_log_probs = self.act_com(communication_features, available_actions, deterministic)
         
         actions = torch.cat((ctrl_actions, com_actions), dim=-1)
+        # print(actions)
         action_log_probs = torch.cat((ctrl_action_log_probs, com_action_log_probs), dim=-1)
 
         return actions, action_log_probs, rnn_states
@@ -120,14 +122,15 @@ class R_Actor(nn.Module):
         else:
             rnn_states = torch.cat((rnn_states[0], rnn_states[1]), dim=-1)
 
+        
         control_log_probs, control_dist_entropy = self.act_ctrl.evaluate_actions(control_features,
-                                                                action[:,:2], available_actions,
+                                                                action[:, 0:-1], available_actions,
                                                                 active_masks=
                                                                 active_masks if self._use_policy_active_masks
                                                                 else None)
 
         communication_log_probs, communication_dist_entropy = self.act_com.evaluate_actions(communication_features,
-                                                                action[:,2:], available_actions,
+                                                                action[:, -1:], available_actions,
                                                                 active_masks=
                                                                 active_masks if self._use_policy_active_masks
                                                                 else None)
@@ -156,8 +159,9 @@ class R_Critic(nn.Module):
         self._use_popart = args.use_popart
         self.tpdv = dict(dtype=torch.float32, device=device)
         init_method = [nn.init.xavier_uniform_, nn.init.orthogonal_][self._use_orthogonal]
-
+        print("cent_obs_space1",cent_obs_space)
         cent_obs_shape = (flatdim(cent_obs_space),)
+        print("cent_obs_space2",cent_obs_space)
         base = CNNBase if len(cent_obs_shape) == 3 else MLPBase
         self.base = base(args, self.hidden_size, cent_obs_shape)
 

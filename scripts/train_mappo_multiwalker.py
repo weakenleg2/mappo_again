@@ -7,26 +7,23 @@ import setproctitle
 import numpy as np
 from pathlib import Path
 import torch
-from gymnasium.spaces.utils import flatdim
-
-
-from custom_envs.mpe import simple_push_c_v2
+from custom_envs.multiwalker_communicate import multiwalker_com
 from algorithms.mappo.config import get_config
-from algorithms.mappo.envs.mpe.MPE_env import MPEEnv
-# simple_spread_c_v2.parallel_env通过这个构建训练环境，这里只有一个scenario,simple_spread.
-    # 总的来说simple_spread_c.py有三个组成部分，scenario,world and components. world.core.py provide components,
-    # scenario.py sets scenario,simple_env.py provides API like gym.
-
+# from algorithms.mappo.envs.mpe.MPE_env import MPEEnv
 from algorithms.mappo.envs.env_wrappers import SubprocVecEnv, DummyVecEnv
-# 是否并行训练
 
 """Train script for MPEs."""
 
 def make_train_env(all_args):
     def get_env_fn(rank):
         def init_env():
-            env = simple_push_c_v2.parallel_env(penalty_ratio=all_args.com_ratio,
-                full_comm=all_args.full_comm, continuous_actions=True)
+            env = multiwalker_com.parallel_env(n_walkers=all_args.num_agents, position_noise=0, 
+                                                angle_noise=0, forward_reward=5.0, terminate_reward=-100.0,
+                                                fall_reward=-10.0, shared_reward=False,
+                                                terminate_on_fall=True,remove_on_fall=True,
+                                                terrain_length=200,
+                                                penalty_ratio=all_args.com_ratio,
+                                                full_comm=all_args.full_comm,max_cycles=500)
             return env
         return init_env
     if all_args.n_rollout_threads == 1:
@@ -55,10 +52,10 @@ def make_eval_env(all_args):
 
 def parse_args(args, parser):
     parser.add_argument('--scenario_name', type=str,
-                        default='simple_push', help="Which scenario to run on")
-    parser.add_argument("--num_landmarks", type=int, default=1)
+                        default='Multiwalker', help="Which scenario to run on")
+    # parser.add_argument("--num_landmarks", type=int, default=3)
     parser.add_argument('--num_agents', type=int,
-                        default=2, help="number of players")
+                        default=3, help="number of players")
 
     all_args = parser.parse_known_args(args)[0]
 
@@ -143,10 +140,6 @@ def main(args):
 
     # env init
     envs = make_train_env(all_args)
-    # print(envs.action_space('agent_0'))
-    # dimension = flatdim(envs.action_space('agent_0'))
-    # print("Flat dimension of the space:", dimension)
-
     eval_envs = make_eval_env(all_args) if all_args.use_eval else None
     num_agents = all_args.num_agents
 
@@ -163,7 +156,7 @@ def main(args):
     if all_args.share_policy:
         from algorithms.mappo.runner.shared.mpe_runner import MPERunner as Runner
     else:
-        from algorithms.mappo.runner.separated.mpe_runner import MPERunner as Runner
+        from algorithms.mappo.runner.separated.walker_runner import MPERunner as Runner
 
     runner = Runner(config)
     runner.run()

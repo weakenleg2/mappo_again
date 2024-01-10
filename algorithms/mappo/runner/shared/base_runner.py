@@ -69,8 +69,9 @@ class Runner(object):
         from algorithms.mappo.algorithms.r_mappo.algorithm.rMAPPOPolicy import R_MAPPOPolicy as Policy
 
         share_observation_space = self.envs.share_observation_space if self.use_centralized_V else self.envs.observation_space('agent_0')
-
+        # print("here",len(self.envs.share_observation_space))
         # policy network
+        # print(self.envs.action_space('agent_0'))
         self.policy = Policy(self.all_args,
                             self.envs.observation_space('agent_0'),
                             share_observation_space,

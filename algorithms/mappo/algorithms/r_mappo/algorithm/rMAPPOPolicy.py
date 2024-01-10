@@ -1,6 +1,7 @@
 import torch
 from algorithms.mappo.algorithms.r_mappo.algorithm.r_actor_critic import R_Actor, R_Critic
 from algorithms.mappo.utils.util import update_linear_schedule
+from torch.distributions import Categorical
 # 几乎没变
 
 class R_MAPPOPolicy:
@@ -14,7 +15,7 @@ class R_MAPPOPolicy:
     :param device: (torch.device) specifies the device to run on (cpu/gpu).
     """
 
-    def __init__(self, args, obs_space, cent_obs_space, act_space, device=torch.device("cpu")):
+    def __init__(self, args, obs_space, cent_obs_space, act_space,laac_size, device=torch.device("cpu")):
         self.device = device
         self.lr = args.lr
         self.critic_lr = args.critic_lr
@@ -24,6 +25,8 @@ class R_MAPPOPolicy:
         self.obs_space = obs_space
         self.share_obs_space = cent_obs_space
         self.act_space = act_space
+        self.laac_params = torch.nn.Parameter(torch.ones(args.num_agents-1, laac_size))
+        
 
         self.actor = R_Actor(args, self.obs_space, self.act_space, self.device)
         self.critic = R_Critic(args, self.share_obs_space, self.device)
@@ -126,3 +129,6 @@ class R_MAPPOPolicy:
         """
         actions, _, rnn_states_actor = self.actor(obs, rnn_states_actor, masks, available_actions, deterministic)
         return actions, rnn_states_actor
+    def sample_laac(self, batch_size):
+        sample = Categorical(logits=self.laac_params).sample([batch_size])
+        self.laac_sample = torch.cat((torch.zeros(batch_size,1).int(), sample), dim=1)

@@ -7,26 +7,18 @@ import setproctitle
 import numpy as np
 from pathlib import Path
 import torch
-from gymnasium.spaces.utils import flatdim
-
-
-from custom_envs.mpe import simple_push_c_v2
+from custom_envs.mpe import simple_spread_c_v2 
 from algorithms.mappo.config import get_config
 from algorithms.mappo.envs.mpe.MPE_env import MPEEnv
-# simple_spread_c_v2.parallel_env通过这个构建训练环境，这里只有一个scenario,simple_spread.
-    # 总的来说simple_spread_c.py有三个组成部分，scenario,world and components. world.core.py provide components,
-    # scenario.py sets scenario,simple_env.py provides API like gym.
-
 from algorithms.mappo.envs.env_wrappers import SubprocVecEnv, DummyVecEnv
-# 是否并行训练
 
 """Train script for MPEs."""
 
 def make_train_env(all_args):
     def get_env_fn(rank):
         def init_env():
-            env = simple_push_c_v2.parallel_env(penalty_ratio=all_args.com_ratio,
-                full_comm=all_args.full_comm, continuous_actions=True)
+            env = simple_spread_c_v2.parallel_env(N=all_args.num_agents, penalty_ratio=all_args.com_ratio,
+                full_comm=all_args.full_comm, local_ratio=all_args.local_ratio, continuous_actions=True)
             return env
         return init_env
     if all_args.n_rollout_threads == 1:
@@ -55,8 +47,8 @@ def make_eval_env(all_args):
 
 def parse_args(args, parser):
     parser.add_argument('--scenario_name', type=str,
-                        default='simple_push', help="Which scenario to run on")
-    parser.add_argument("--num_landmarks", type=int, default=1)
+                        default='simple_spread', help="Which scenario to run on")
+    parser.add_argument("--num_landmarks", type=int, default=3)
     parser.add_argument('--num_agents', type=int,
                         default=2, help="number of players")
 
@@ -143,10 +135,6 @@ def main(args):
 
     # env init
     envs = make_train_env(all_args)
-    # print(envs.action_space('agent_0'))
-    # dimension = flatdim(envs.action_space('agent_0'))
-    # print("Flat dimension of the space:", dimension)
-
     eval_envs = make_eval_env(all_args) if all_args.use_eval else None
     num_agents = all_args.num_agents
 

@@ -239,8 +239,11 @@ class Scenario(BaseScenario):
             comm.append(message)
 
         comm = np.concatenate(comm)
+        # print("comm",comm)
         obs = np.concatenate(
             (agent.state.p_pos, agent.state.p_vel,
             entity_pos, comm))
+        # print("obs",obs)
+        # agent still gets the landmarks(world info)
 
         return obs

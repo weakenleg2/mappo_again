@@ -190,7 +190,7 @@ def get_config():
     parser.add_argument("--episode_length", type=int,
                         default=25, help="Max length for any episode")
     parser.add_argument("--n_trajectories", type=int,
-                        default=100, help="Number of trajectories to sample per thread")
+                        default=15, help="Number of trajectories to sample per thread")
 
     # network parameters
     parser.add_argument("--share_policy", action='store_true',
@@ -257,7 +257,7 @@ def get_config():
                         default=True, help='use generalized advantage estimation')
     parser.add_argument("--gamma", type=float, default=0.99,
                         help='discount factor for rewards (default: 0.99)')
-    parser.add_argument("--gae_lambda", type=float, default=0.95,
+    parser.add_argument("--gae_lambda", type=float, default=0.98,
                         help='gae lambda parameter (default: 0.95)')
     parser.add_argument("--use_proper_time_limits", action='store_true',
                         default=False, help='compute returns taking into account time limits')
