@@ -159,9 +159,9 @@ class R_Critic(nn.Module):
         self._use_popart = args.use_popart
         self.tpdv = dict(dtype=torch.float32, device=device)
         init_method = [nn.init.xavier_uniform_, nn.init.orthogonal_][self._use_orthogonal]
-        print("cent_obs_space1",cent_obs_space)
+        # print("cent_obs_space1",cent_obs_space)
         cent_obs_shape = (flatdim(cent_obs_space),)
-        print("cent_obs_space2",cent_obs_space)
+        # print("cent_obs_space2",cent_obs_space)
         base = CNNBase if len(cent_obs_shape) == 3 else MLPBase
         self.base = base(args, self.hidden_size, cent_obs_shape)
 

@@ -49,34 +49,35 @@ def config():
     encoder_in = ["agent"]
     decoder_in = ["obs", "act"] # + "z"
     reconstruct = ["next_obs", "rew"]
-encoder_in = ["agent"]
-decoder_in = ["obs", "act"] # + "z"
-reconstruct = ["next_obs", "rew"]
-class rbDataSet(Dataset):
-    @ops_ingredient.capture
-    # get config
-    def __init__(self, rb, encoder_in, decoder_in, reconstruct):
-        self.rb = rb
-        self.data = []
-        self.data.append(torch.cat([torch.from_numpy(self.rb[n]) for n in encoder_in], dim=1))
-        self.data.append(torch.cat([torch.from_numpy(self.rb[n]) for n in decoder_in], dim=1))
-        self.data.append(torch.cat([torch.from_numpy(self.rb[n]) for n in reconstruct], dim=1))
+# encoder_in = ["agent"]
+# decoder_in = ["obs", "act"] # + "z"
+# reconstruct = ["next_obs", "rew"]
+# class rbDataSet(Dataset):
+#     @ops_ingredient.capture
+#     # get config
+#     def __init__(self, rb, encoder_in, decoder_in, reconstruct):
+#         self.rb = rb
+#         self.data = []
+#         self.data.append(torch.cat([torch.from_numpy(self.rb[n]) for n in encoder_in], dim=1))
+#         self.data.append(torch.cat([torch.from_numpy(self.rb[n]) for n in decoder_in], dim=1))
+#         self.data.append(torch.cat([torch.from_numpy(self.rb[n]) for n in reconstruct], dim=1))
         
-        print([x.shape for x in self.data])
-    def __len__(self):
-        return self.data[0].shape[0]
-    def __getitem__(self, idx):
-        return [x[idx, :] for x in self.data]
+#         print([x.shape for x in self.data])
+#     def __len__(self):
+#         return self.data[0].shape[0]
+#     def __getitem__(self, idx):
+#         return [x[idx, :] for x in self.data]
 
 @ops_ingredient.capture
-def compute_clusters(rb, agent_count, batch_size, clusters, lr, epochs, z_features, kl_weight, _log):
-    device = 'cpu'
+def compute_clusters(rb, agent_count, batch_size, clusters, lr, epochs, z_features, kl_weight, device):
+    # device = 'cpu'
 
-    dataset = rbDataSet(rb,encoder_in,decoder_in,reconstruct)
+    # dataset = rbDataSet(rb,encoder_in,decoder_in,reconstruct)
     
-    input_size = dataset.data[0].shape[-1]
-    extra_decoder_input = dataset.data[1].shape[-1]
-    reconstruct_size = dataset.data[2].shape[-1]
+    # input_size = dataset.data[0].shape[-1]
+    # extra_decoder_input = dataset.data[1].shape[-1]
+    # reconstruct_size = dataset.data[2].shape[-1]
+    device =device
     
     model = LinearVAE(z_features, input_size, extra_decoder_input, reconstruct_size)
     print(model)
@@ -113,7 +114,7 @@ def compute_clusters(rb, agent_count, batch_size, clusters, lr, epochs, z_featur
         train_loss = running_loss/len(dataloader.dataset)
         return train_loss
     # input_size, extra_decoder_input, reconstruct_size
-    # wahat is the input here?
+    # what is the input here?
     dataloader = DataLoader(dataset, batch_size=batch_size, shuffle=True)
 
     train_loss = []
@@ -129,13 +130,13 @@ def compute_clusters(rb, agent_count, batch_size, clusters, lr, epochs, z_featur
 
     with torch.no_grad():
         z = model.encode(x)
-    z = z.to("cpu")
+    z = z.to(device)
     z = z[:, :]
     # what is cluster here?
 
     if clusters is None:
         clusters = find_optimal_cluster_number(z)
-    _log.info(f"Creating {clusters} clusters.")
+    # _log.info(f"Creating {clusters} clusters.")
     # run k-means from scikit-learn
     kmeans = KMeans(
         n_clusters=clusters, init='k-means++',
@@ -146,26 +147,26 @@ def compute_clusters(rb, agent_count, batch_size, clusters, lr, epochs, z_featur
         plot_clusters(kmeans.cluster_centers_, z)
     return torch.from_numpy(cluster_ids_x).long()
 
-@ops_ingredient.capture
-def plot_clusters(cluster_centers, z, human_selected_idx, _run):
+# @ops_ingredient.capture
+# def plot_clusters(cluster_centers, z, human_selected_idx, _run):
 
-    if human_selected_idx is None:
-        plt.plot(z[:, 0], z[:, 1], 'o')
-        plt.plot(cluster_centers[:, 0], cluster_centers[:, 1], 'x')
+#     if human_selected_idx is None:
+#         plt.plot(z[:, 0], z[:, 1], 'o')
+#         plt.plot(cluster_centers[:, 0], cluster_centers[:, 1], 'x')
 
-        for i in range(z.shape[0]):
-            plt.annotate(str(i), xy=(z[i, 0], z[i, 1]))
+#         for i in range(z.shape[0]):
+#             plt.annotate(str(i), xy=(z[i, 0], z[i, 1]))
 
-    else:
-        colors = 'bgrcmykw'
-        for i in range(len(human_selected_idx)):
-            plt.plot(z[i, 0], z[i, 1], 'o' + colors[human_selected_idx[i]])
+#     else:
+#         colors = 'bgrcmykw'
+#         for i in range(len(human_selected_idx)):
+#             plt.plot(z[i, 0], z[i, 1], 'o' + colors[human_selected_idx[i]])
 
-        plt.plot(cluster_centers[:, 0], cluster_centers[:, 1], 'x')
-    with tempfile.NamedTemporaryFile(suffix=".png", delete=False) as tmpfile:
-        plt.savefig(tmpfile, format="png") # File position is at the end of the file.
-        _run.add_artifact(tmpfile.name, f"cluster.png")
-    # plt.savefig("cluster.png")
+#         plt.plot(cluster_centers[:, 0], cluster_centers[:, 1], 'x')
+#     with tempfile.NamedTemporaryFile(suffix=".png", delete=False) as tmpfile:
+#         plt.savefig(tmpfile, format="png") # File position is at the end of the file.
+#         _run.add_artifact(tmpfile.name, f"cluster.png")
+#     # plt.savefig("cluster.png")
 
 def find_optimal_cluster_number(X):
 
