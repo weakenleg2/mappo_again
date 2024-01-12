@@ -11,6 +11,7 @@ from algorithms.mappo.runner.separated.base_pre import Runner
 from algorithms.mappo.algorithms.r_mappo.algorithm.ops_utils import compute_clusters
 
 import imageio
+import sys
 
 def _t2n(x):
     return x.detach().cpu().numpy()
@@ -49,13 +50,14 @@ class MPERunner(Runner):
 
             tot_comms = 0
             tot_frames = 0
+            # 要将学习的过程加入进去啊
             for step in range(self.episode_length):
                 # print(self.episode_length)
                 # Sample actions
                 values, actions, action_log_probs, rnn_states, rnn_states_critic, actions_env = self.collect(
                     step)
                 # print(type(actions))
-                # print(actions.shape[-1])
+                # print(actions.shape)
                 # print(torch.nn.functional.one_hot(torch.tensor(actions,dtype=torch.int64), num_classes=actions.shape[-1]))
                 # Obser reward and next obs
                 # print(actions_env)
@@ -69,6 +71,7 @@ class MPERunner(Runner):
 
                 # Repeat the combined matrix to get a shape of (32, 3, 3)
                 repeated_matrix = combined_matrix.repeat(self.all_args.n_rollout_threads, 1, 1)
+                # print(type)
                     
 
                 # print(len(one_hot_list))
@@ -92,16 +95,23 @@ class MPERunner(Runner):
                         tot_comms += agent_info['comms']
                         tot_frames += agent_info['frames']
 
-                # cluster_idx = compute_clusters(data, 
-                #                        self.all_args.num_agents,self.num_mini_batch, None, 
-                #                        3e-4, 10, 10, 0.0001, self.device)
-                # for agent_id in range(self.num_agents):
-                #     self.policy[agent_id].laac_sample= cluster_idx.repeat(self.n_rollout_threads, 1)
+                
                 # insert data into buffer
-                self.easy_buffer.insert(action=actions,obs=obs,one_hot_list=one_hot_list,reward=rewards)
+                if episode == 200:
+                    self.easy_buffer.insert(action=actions,obs=obs,one_hot_list=repeated_matrix,reward=rewards)
                 self.insert(data)
-
+            # print(self.easy_buffer.rewards_buffer)
             # compute return and update network
+            # print(self.easy_buffer.one_hot_list_buffer)
+            if episode == 200:
+                # 50 is ok
+                cluster_idx = compute_clusters(self.easy_buffer, 
+                                        self.all_args.num_agents,self.all_args.num_mini_batch*32, None, 
+                                        3e-5, 10, 10, 0.0001, self.device)
+                print(cluster_idx)
+                sys.exit(0)
+            # for agent_id in range(self.num_agents):
+            #     self.policy[agent_id].laac_sample= cluster_idx.repeat(self.n_rollout_threads, 1)
             self.compute()
             train_infos = self.train()
 
@@ -178,6 +188,7 @@ class MPERunner(Runner):
         rnn_states_critic = []
 
         for agent_id in range(self.num_agents):
+            # print(self.buffer[agent_id].share_obs[step].shape)
             self.trainer[agent_id].prep_rollout()
             value, action, action_log_prob, rnn_state, rnn_state_critic \
                 = self.trainer[agent_id].policy.get_actions(self.buffer[agent_id].share_obs[step],
@@ -229,7 +240,8 @@ class MPERunner(Runner):
 
     def insert(self, data):
         obs, rewards, dones, infos, values, actions, action_log_probs, rnn_states, rnn_states_critic = data
-
+        # print(obs)
+        # print("wuhu",np.array(list(obs)))
         rnn_states[dones == True] = np.zeros(
             ((dones == True).sum(), self.recurrent_N, self.actor_hidden_size * 2), dtype=np.float32)
         rnn_states_critic[dones == True] = np.zeros(

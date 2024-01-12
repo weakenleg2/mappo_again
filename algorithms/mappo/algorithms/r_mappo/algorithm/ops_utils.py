@@ -22,33 +22,34 @@ from tqdm import tqdm
 import matplotlib.pyplot as plt
 from sklearn.cluster import KMeans
 from sklearn.metrics import davies_bouldin_score
-from sacred import Ingredient
+# from sacred import Ingredient
+import numpy as np
 
 from algorithms.mappo.algorithms.r_mappo.algorithm.vae import LinearVAE
-ops_ingredient = Ingredient("ops")
+# ops_ingredient = Ingredient("ops")
 
-@ops_ingredient.config
-def config():
-    ops_timestep = 100
+# @ops_ingredient.config
+# def config():
+#     ops_timestep = 100
 
-    delay = 0
-    pretraining_steps = 5000
-    pretraining_times = 1
+#     delay = 0
+#     pretraining_steps = 5000
+#     pretraining_times = 1
 
-    batch_size = 128
-    clusters = None
-    lr = 3e-4
-    epochs = 10
-    z_features = 10
+#     batch_size = 128
+#     clusters = None
+#     lr = 3e-4
+#     epochs = 10
+#     z_features = 10
 
-    kl_weight = 0.0001
-    delay_training = False
+#     kl_weight = 0.0001
+#     delay_training = False
 
-    human_selected_idx = None # like [0, 0, 0, 0, 1, 1, 1, 1] or None - only used for visualisation
+#     human_selected_idx = None # like [0, 0, 0, 0, 1, 1, 1, 1] or None - only used for visualisation
 
-    encoder_in = ["agent"]
-    decoder_in = ["obs", "act"] # + "z"
-    reconstruct = ["next_obs", "rew"]
+#     encoder_in = ["agent"]
+#     decoder_in = ["obs", "act"] # + "z"
+#     reconstruct = ["next_obs", "rew"]
 # encoder_in = ["agent"]
 # decoder_in = ["obs", "act"] # + "z"
 # reconstruct = ["next_obs", "rew"]
@@ -68,16 +69,38 @@ def config():
 #     def __getitem__(self, idx):
 #         return [x[idx, :] for x in self.data]
 
-@ops_ingredient.capture
+# @ops_ingredient.capture
 def compute_clusters(rb, agent_count, batch_size, clusters, lr, epochs, z_features, kl_weight, device):
     # device = 'cpu'
-
+    device =device
     # dataset = rbDataSet(rb,encoder_in,decoder_in,reconstruct)
-    
+    # print("rb.obs_buffer.shape",type(rb.obs_buffer))
+    # print("rb.one_hot_list_buffer.shape",rb.one_hot_list_buffer.shape)
+    # print("rb.actions_buffer.shape",rb.actions_buffer.shape)
+    # print("rewards_buffer.shape",rb.rewards_buffer.shape)
+    obs_buffer_flat = rb.obs_buffer.reshape(-1, rb.obs_buffer.shape[-1])  # Flatten the first two dimensions
+    actions_buffer_flat = rb.actions_buffer.reshape(-1, rb.actions_buffer.shape[-1])
+    rewards_buffer_flat = rb.rewards_buffer.reshape(-1, rb.rewards_buffer.shape[-1])
+    agent_flat = rb.one_hot_list_buffer.reshape(-1, rb.one_hot_list_buffer.shape[-1])
+    # print(obs_buffer_flat.shape, actions_buffer_flat.shape, rewards_buffer_flat.shape, agent_flat.shape)
+    extra_decoder = np.concatenate([obs_buffer_flat, actions_buffer_flat], axis=-1)
+    reconstruct = np.concatenate([obs_buffer_flat, rewards_buffer_flat], axis=-1)
+    # print(extra_decoder.shape, reconstruct.shape)
+    extra_decoder_tensor = torch.tensor(extra_decoder, dtype=torch.float32).to(device)
+
+    reconstruct_tensor = torch.tensor(reconstruct, dtype=torch.float32).to(device)
+    encode_tensor= torch.tensor(agent_flat, dtype=torch.float32).to(device)
+    # print(encode_tensor.shape,extra_decoder_tensor.shape,reconstruct_tensor.shape)
+
+
+    input_size = rb.one_hot_list_buffer.shape[-1]
+    extra_decoder_input = rb.obs_buffer.shape[-1]+rb.actions_buffer.shape[-1]
+    reconstruct_size = rb.obs_buffer.shape[-1]+rb.rewards_buffer.shape[-1]
+    # print(input_size,extra_decoder_input,reconstruct_size)
     # input_size = dataset.data[0].shape[-1]
     # extra_decoder_input = dataset.data[1].shape[-1]
     # reconstruct_size = dataset.data[2].shape[-1]
-    device =device
+    
     
     model = LinearVAE(z_features, input_size, extra_decoder_input, reconstruct_size)
     print(model)
@@ -100,51 +123,57 @@ def compute_clusters(rb, agent_count, batch_size, clusters, lr, epochs, z_featur
         KLD = -0.5 * torch.sum(1 + logvar - mu.pow(2) - logvar.exp())
         return BCE + kl_weight*KLD
 
-    def fit(model, dataloader):
+    def fit(model, encode_tensor, extra_decoder_tensor, reconstruct_tensor, batch_size):
         model.train()
         running_loss = 0.0
-        for i, (encoder_in, decoder_in, y) in enumerate(dataloader):
+        num_samples = encode_tensor.size(0)
+        # print(num_samples)
+        for i in range(0, num_samples, batch_size):
+            # Extracting the batch
+            batch_encode = encode_tensor[i:i+batch_size]
+            batch_extra_decoder = extra_decoder_tensor[i:i+batch_size]
+            batch_reconstruct = reconstruct_tensor[i:i+batch_size]
+
             optimizer.zero_grad()
-            reconstruction, mu, logvar = model(encoder_in, decoder_in)
-            bce_loss = criterion(reconstruction, y)
+            reconstruction, mu, logvar = model(batch_encode, batch_extra_decoder)
+            bce_loss = criterion(reconstruction, batch_reconstruct)
             loss = final_loss(bce_loss, mu, logvar)
             running_loss += loss.item()
             loss.backward()
             optimizer.step()
-        train_loss = running_loss/len(dataloader.dataset)
-        return train_loss
-    # input_size, extra_decoder_input, reconstruct_size
-    # what is the input here?
-    dataloader = DataLoader(dataset, batch_size=batch_size, shuffle=True)
-
+            # print(loss)
+        
+        return running_loss / num_samples
     train_loss = []
+    # Training loop
     for epoch in tqdm(range(epochs)):
-        train_epoch_loss = fit(model, dataloader)
+        train_epoch_loss = fit(model, encode_tensor, extra_decoder_tensor, reconstruct_tensor, batch_size)
         train_loss.append(train_epoch_loss)
 
     print(f"Train Loss: {train_epoch_loss:.6f}")
     # check? what is agent count?
-    x = torch.eye(agent_count)
+    x = torch.eye(agent_count).to(device)
     # This step is crucial as it provides 
     # the latent representations corresponding to each agent
 
     with torch.no_grad():
         z = model.encode(x)
-    z = z.to(device)
-    z = z[:, :]
+    z_np = z.to('cpu').numpy()
+    z_np = z_np[:, :]
     # what is cluster here?
 
     if clusters is None:
-        clusters = find_optimal_cluster_number(z)
+        clusters = find_optimal_cluster_number(z_np)
+    print(clusters)
     # _log.info(f"Creating {clusters} clusters.")
     # run k-means from scikit-learn
     kmeans = KMeans(
         n_clusters=clusters, init='k-means++',
         n_init=10
     )
-    cluster_ids_x = kmeans.fit_predict(z) # predict labels
-    if z_features == 2:
-        plot_clusters(kmeans.cluster_centers_, z)
+    cluster_ids_x = kmeans.fit_predict(z_np) # predict labels
+    # if z_features == 2:
+    #     plot_clusters(kmeans.cluster_centers_, z)
     return torch.from_numpy(cluster_ids_x).long()
 
 # @ops_ingredient.capture

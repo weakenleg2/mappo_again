@@ -35,6 +35,7 @@ class R_Actor(nn.Module):
         #Hack since we're only using MPE
         base = MLPBase
         self.base_ctrl = base(args, self.hidden_size, obs_shape)
+        # print(obs_shape)
         self.base_com = base(args, self.hidden_size, obs_shape)
 
         if self._use_naive_recurrent_policy or self._use_recurrent_policy:
@@ -66,7 +67,7 @@ class R_Actor(nn.Module):
         masks = check(masks).to(**self.tpdv)
         if available_actions is not None:
             available_actions = check(available_actions).to(**self.tpdv)
-        # print(obs)
+        # print(obs.shape)
 
         control_features = self.base_ctrl(obs)
         communication_features = self.base_com(obs)

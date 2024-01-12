@@ -55,7 +55,7 @@ def parse_args(args, parser):
                         default='Multiwalker', help="Which scenario to run on")
     # parser.add_argument("--num_landmarks", type=int, default=3)
     parser.add_argument('--num_agents', type=int,
-                        default=3, help="number of players")
+                        default=4, help="number of players")
 
     all_args = parser.parse_known_args(args)[0]
 
