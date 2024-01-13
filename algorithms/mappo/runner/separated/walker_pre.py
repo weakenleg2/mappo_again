@@ -57,7 +57,8 @@ class MPERunner(Runner):
                 values, actions, action_log_probs, rnn_states, rnn_states_critic, actions_env = self.collect(
                     step)
                 # print(type(actions))
-                # print(actions.shape)
+                # if step == 0:
+                #     print(actions.shape)
                 # print(torch.nn.functional.one_hot(torch.tensor(actions,dtype=torch.int64), num_classes=actions.shape[-1]))
                 # Obser reward and next obs
                 # print(actions_env)
@@ -71,7 +72,8 @@ class MPERunner(Runner):
 
                 # Repeat the combined matrix to get a shape of (32, 3, 3)
                 repeated_matrix = combined_matrix.repeat(self.all_args.n_rollout_threads, 1, 1)
-                # print(type)
+                # if step ==0:
+                #     print(repeated_matrix.shape)
                     
 
                 # print(len(one_hot_list))
@@ -97,16 +99,17 @@ class MPERunner(Runner):
 
                 
                 # insert data into buffer
-                if episode == 200:
-                    self.easy_buffer.insert(action=actions,obs=obs,one_hot_list=repeated_matrix,reward=rewards)
+                if 20 < episode <= (20+self.pretrain_dur):
+                    self.easy_buffer.insert(action=actions, obs=obs, one_hot_list=repeated_matrix, reward=rewards)
+                    # self.easy_buffer.insert(action=actions,obs=obs,one_hot_list=repeated_matrix,reward=rewards)
                 self.insert(data)
             # print(self.easy_buffer.rewards_buffer)
             # compute return and update network
             # print(self.easy_buffer.one_hot_list_buffer)
-            if episode == 200:
+            if episode == (20+self.pretrain_dur):
                 # 50 is ok
                 cluster_idx = compute_clusters(self.easy_buffer, 
-                                        self.all_args.num_agents,self.all_args.num_mini_batch*32, None, 
+                                        self.all_args.num_agents,self.all_args.num_mini_batch*128, None, 
                                         3e-5, 10, 10, 0.0001, self.device)
                 print(cluster_idx)
                 sys.exit(0)

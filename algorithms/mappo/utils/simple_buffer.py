@@ -9,15 +9,16 @@ class ReplayBuffer:
         self.episode_length = args.episode_length
         self.n_rollout_threads = args.n_rollout_threads
         self.num_agents = args.num_agents
+        self.pretrain_dur = args.pretrain_dur
         obs_shape = get_shape_from_obs_space(obs_space)
         # print("here",obs_shape)
         act_shape = get_shape_from_act_space(act_space)
 
         self.buffer_size = args.episode_length
-        self.actions_buffer = np.zeros((self.episode_length*self.num_agents, self.n_rollout_threads, act_shape), dtype=np.float32)
-        self.obs_buffer = np.zeros((self.episode_length*self.num_agents , self.n_rollout_threads, *obs_shape), dtype=np.float32)
-        self.one_hot_list_buffer = np.zeros((self.episode_length*self.num_agents , self.n_rollout_threads, args.num_agents), dtype=np.float32)
-        self.rewards_buffer = np.zeros((self.episode_length*self.num_agents , self.n_rollout_threads, 1), dtype=np.float32)
+        self.actions_buffer = np.zeros((self.episode_length*self.num_agents*self.pretrain_dur, self.n_rollout_threads, act_shape), dtype=np.float32)
+        self.obs_buffer = np.zeros((self.episode_length*self.num_agents*self.pretrain_dur , self.n_rollout_threads, *obs_shape), dtype=np.float32)
+        self.one_hot_list_buffer = np.zeros((self.episode_length*self.num_agents*self.pretrain_dur , self.n_rollout_threads, self.num_agents), dtype=np.float32)
+        self.rewards_buffer = np.zeros((self.episode_length*self.num_agents*self.pretrain_dur , self.n_rollout_threads, 1), dtype=np.float32)
         self.current_size = 0
         self.step = 0
 
@@ -30,7 +31,9 @@ class ReplayBuffer:
             self.one_hot_list_buffer[self.step] = one_hot_list[:,agent_id].detach().numpy().copy()
             self.rewards_buffer[self.step] = reward[:,agent_id].copy()
             self.current_size += 1
-            self.step = (self.step + 1) % (self.episode_length*self.num_agents)
+            self.step = (self.step + 1) % (self.episode_length*self.num_agents*self.pretrain_dur)
+            # 倒是对的
+            # print(self.step)
             # else:
             #     # Handle buffer overflow, for example, by removing the oldest data
             #     self.actions_buffer.pop(0)

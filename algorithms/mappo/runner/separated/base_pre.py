@@ -32,7 +32,7 @@ class Runner(object):
         self.use_obs_instead_of_state = self.all_args.use_obs_instead_of_state
         self.num_env_steps = self.all_args.num_env_steps
         self.episode_length = self.all_args.episode_length
-        print(self.episode_length)
+        # print(self.episode_length)
         self.n_trajectories = self.all_args.n_trajectories
         self.n_rollout_threads = self.all_args.n_rollout_threads
         self.n_eval_rollout_threads = self.all_args.n_eval_rollout_threads
@@ -52,6 +52,7 @@ class Runner(object):
 
         # dir
         self.model_dir = self.all_args.model_dir
+        self.pretrain_dur = self.all_args.pretrain_dur
         self.easy_buffer = ReplayBuffer(self.all_args,self.envs.observation_space('agent_0'),
                                        
                                        self.envs.action_space('agent_0')

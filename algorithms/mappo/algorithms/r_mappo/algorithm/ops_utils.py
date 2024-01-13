@@ -121,6 +121,7 @@ def compute_clusters(rb, agent_count, batch_size, clusters, lr, epochs, z_featur
         # see equation 1
         BCE = bce_loss 
         KLD = -0.5 * torch.sum(1 + logvar - mu.pow(2) - logvar.exp())
+        # 
         return BCE + kl_weight*KLD
 
     def fit(model, encode_tensor, extra_decoder_tensor, reconstruct_tensor, batch_size):
