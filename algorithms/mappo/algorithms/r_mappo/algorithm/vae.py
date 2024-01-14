@@ -3,8 +3,6 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
-from torch.distributions import Categorical
-from gym.spaces import flatdim
 
 class LinearVAE(nn.Module):
     def __init__(self, features, input_size, extra_decoder_input, reconstruct_size):

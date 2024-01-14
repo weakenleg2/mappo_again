@@ -12,9 +12,27 @@ from algorithms.mappo.algorithms.r_mappo.algorithm.ops_utils import compute_clus
 
 import imageio
 import sys
+import pandas as pd
+
 
 def _t2n(x):
     return x.detach().cpu().numpy()
+def save_to_csv(data, num_agents, filename_prefix, episode, step):
+    # act,obs,rew data
+    num_instances, _, feature_size = data.shape
+    for agent in range(num_agents):
+        agent_data = data[:, agent, :].reshape(num_instances, -1)
+        columns = [f'feature_{i+1}' for i in range(feature_size)]
+        df = pd.DataFrame(agent_data, columns=columns)
+
+        # Generate filename
+        filename = f'{filename_prefix}_agent{agent+1}.csv'
+
+        # Check if file exists to determine whether to write header
+        file_exists = os.path.isfile(filename)
+
+        # Append to CSV file (create if doesn't exist, append if it does)
+        df.to_csv(filename, mode='a', index=False, header=not file_exists)
 
 class MPERunner(Runner):
     def __init__(self, config):
@@ -59,9 +77,9 @@ class MPERunner(Runner):
                 # print(type(actions))
                 # if step == 0:
                 #     print(actions.shape)
-                # print(torch.nn.functional.one_hot(torch.tensor(actions,dtype=torch.int64), num_classes=actions.shape[-1]))
-                # Obser reward and next obs
-                # print(actions_env)
+                # # print(torch.nn.functional.one_hot(torch.tensor(actions,dtype=torch.int64), num_classes=actions.shape[-1]))
+                # # Obser reward and next obs
+                #     print(actions_env)
                 one_hot_list = []
                 for i in range(self.all_args.num_agents):
                     one_hot_agent = torch.nn.functional.one_hot(torch.tensor(i), self.all_args.num_agents)
@@ -89,6 +107,12 @@ class MPERunner(Runner):
                 rewards = self.dict_to_tensor(rewards, False)
                 # print(rewards.shape)
                 rewards = np.expand_dims(rewards, -1)
+                # dones = np.expand_dims(dones, -1)
+                # print(type(actions),type(obs),type(rewards))
+                # if 150 < episode <= (150+self.pretrain_dur):
+                #     save_to_csv(np.clip(actions,-1,1), 3, 'actions', episode, step)
+                #     save_to_csv(rewards, 3, 'rewards', episode, step)
+                #     save_to_csv(obs, 3, 'observations', episode, step)
 
                 data = obs, rewards, dones, infos, values, actions, action_log_probs, rnn_states, rnn_states_critic
                 
@@ -99,18 +123,20 @@ class MPERunner(Runner):
 
                 
                 # insert data into buffer
-                if 20 < episode <= (20+self.pretrain_dur):
-                    self.easy_buffer.insert(action=actions, obs=obs, one_hot_list=repeated_matrix, reward=rewards)
+                # if 150 < episode <= (150+self.pretrain_dur):
+                    # 160
+                # if step >=self.episode_length // 2:
+                self.easy_buffer.insert(action=np.clip(actions,-1,1), obs=obs, one_hot_list=repeated_matrix, reward=rewards,dones=dones)
+                # print()
                     # self.easy_buffer.insert(action=actions,obs=obs,one_hot_list=repeated_matrix,reward=rewards)
                 self.insert(data)
             # print(self.easy_buffer.rewards_buffer)
             # compute return and update network
             # print(self.easy_buffer.one_hot_list_buffer)
-            if episode == (20+self.pretrain_dur):
-                # 50 is ok
+            if episode == (self.pretrain_dur):
                 cluster_idx = compute_clusters(self.easy_buffer, 
-                                        self.all_args.num_agents,self.all_args.num_mini_batch*128, None, 
-                                        3e-5, 10, 10, 0.0001, self.device)
+                                        self.all_args.num_agents,self.all_args.num_mini_batch*256, None, 
+                                        1e-4, 10, 10, 0.0001, self.device)
                 print(cluster_idx)
                 sys.exit(0)
             # for agent_id in range(self.num_agents):

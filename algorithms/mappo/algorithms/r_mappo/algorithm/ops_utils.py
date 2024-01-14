@@ -26,50 +26,23 @@ from sklearn.metrics import davies_bouldin_score
 import numpy as np
 
 from algorithms.mappo.algorithms.r_mappo.algorithm.vae import LinearVAE
-# ops_ingredient = Ingredient("ops")
+import wandb
 
-# @ops_ingredient.config
-# def config():
-#     ops_timestep = 100
+# Initialize a new run
+wandb.init(project="vae_classification", entity="2017920898")
 
-#     delay = 0
-#     pretraining_steps = 5000
-#     pretraining_times = 1
 
-#     batch_size = 128
-#     clusters = None
-#     lr = 3e-4
-#     epochs = 10
-#     z_features = 10
+def normalize_data(buffer):
+    # Compute mean and standard deviation
+    mean = buffer.mean(axis=0)
+    std = buffer.std(axis=0)
 
-#     kl_weight = 0.0001
-#     delay_training = False
+    # Avoid division by zero by setting std to 1 where it's 0
+    # std[std == 0] = 1
 
-#     human_selected_idx = None # like [0, 0, 0, 0, 1, 1, 1, 1] or None - only used for visualisation
-
-#     encoder_in = ["agent"]
-#     decoder_in = ["obs", "act"] # + "z"
-#     reconstruct = ["next_obs", "rew"]
-# encoder_in = ["agent"]
-# decoder_in = ["obs", "act"] # + "z"
-# reconstruct = ["next_obs", "rew"]
-# class rbDataSet(Dataset):
-#     @ops_ingredient.capture
-#     # get config
-#     def __init__(self, rb, encoder_in, decoder_in, reconstruct):
-#         self.rb = rb
-#         self.data = []
-#         self.data.append(torch.cat([torch.from_numpy(self.rb[n]) for n in encoder_in], dim=1))
-#         self.data.append(torch.cat([torch.from_numpy(self.rb[n]) for n in decoder_in], dim=1))
-#         self.data.append(torch.cat([torch.from_numpy(self.rb[n]) for n in reconstruct], dim=1))
-        
-#         print([x.shape for x in self.data])
-#     def __len__(self):
-#         return self.data[0].shape[0]
-#     def __getitem__(self, idx):
-#         return [x[idx, :] for x in self.data]
-
-# @ops_ingredient.capture
+    # Normalize the buffer
+    normalized_buffer = (buffer - mean) / (std+1e-6)
+    return normalized_buffer
 def compute_clusters(rb, agent_count, batch_size, clusters, lr, epochs, z_features, kl_weight, device):
     # device = 'cpu'
     device =device
@@ -82,9 +55,15 @@ def compute_clusters(rb, agent_count, batch_size, clusters, lr, epochs, z_featur
     actions_buffer_flat = rb.actions_buffer.reshape(-1, rb.actions_buffer.shape[-1])
     rewards_buffer_flat = rb.rewards_buffer.reshape(-1, rb.rewards_buffer.shape[-1])
     agent_flat = rb.one_hot_list_buffer.reshape(-1, rb.one_hot_list_buffer.shape[-1])
+    next_obs_buffer_flat = rb.next_obs_buffer.reshape(-1, rb.next_obs_buffer.shape[-1])
+    # print(next_obs_buffer_flat)
+    actions_buffer_flat = normalize_data(actions_buffer_flat)
+    obs_buffer_flat = normalize_data(obs_buffer_flat)
+    rewards_buffer_flat = normalize_data(rewards_buffer_flat)
+    next_obs_buffer_flat = normalize_data(next_obs_buffer_flat)
     # print(obs_buffer_flat.shape, actions_buffer_flat.shape, rewards_buffer_flat.shape, agent_flat.shape)
     extra_decoder = np.concatenate([obs_buffer_flat, actions_buffer_flat], axis=-1)
-    reconstruct = np.concatenate([obs_buffer_flat, rewards_buffer_flat], axis=-1)
+    reconstruct = np.concatenate([next_obs_buffer_flat, rewards_buffer_flat], axis=-1)
     # print(extra_decoder.shape, reconstruct.shape)
     extra_decoder_tensor = torch.tensor(extra_decoder, dtype=torch.float32).to(device)
 
@@ -95,7 +74,7 @@ def compute_clusters(rb, agent_count, batch_size, clusters, lr, epochs, z_featur
 
     input_size = rb.one_hot_list_buffer.shape[-1]
     extra_decoder_input = rb.obs_buffer.shape[-1]+rb.actions_buffer.shape[-1]
-    reconstruct_size = rb.obs_buffer.shape[-1]+rb.rewards_buffer.shape[-1]
+    reconstruct_size = rb.next_obs_buffer.shape[-1]+rb.rewards_buffer.shape[-1]
     # print(input_size,extra_decoder_input,reconstruct_size)
     # input_size = dataset.data[0].shape[-1]
     # extra_decoder_input = dataset.data[1].shape[-1]
@@ -139,6 +118,7 @@ def compute_clusters(rb, agent_count, batch_size, clusters, lr, epochs, z_featur
             reconstruction, mu, logvar = model(batch_encode, batch_extra_decoder)
             bce_loss = criterion(reconstruction, batch_reconstruct)
             loss = final_loss(bce_loss, mu, logvar)
+            wandb.log({"loss": loss})
             running_loss += loss.item()
             loss.backward()
             optimizer.step()

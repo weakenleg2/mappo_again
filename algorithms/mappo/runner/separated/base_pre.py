@@ -35,6 +35,7 @@ class Runner(object):
         # print(self.episode_length)
         self.n_trajectories = self.all_args.n_trajectories
         self.n_rollout_threads = self.all_args.n_rollout_threads
+        # print(self.n_rollout_threads)
         self.n_eval_rollout_threads = self.all_args.n_eval_rollout_threads
         self.use_linear_lr_decay = self.all_args.use_linear_lr_decay
         self.actor_hidden_size = self.all_args.actor_hidden_size

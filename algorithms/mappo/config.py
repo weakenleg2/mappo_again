@@ -190,7 +190,8 @@ def get_config():
     parser.add_argument("--episode_length", type=int,
                         default=25, help="Max length for any episode")
     parser.add_argument("--n_trajectories", type=int,
-                        default=15, help="Number of trajectories to sample per thread")
+                        default=5, help="Number of trajectories to sample per thread")
+    # make a try here
 
     # network parameters
     parser.add_argument("--share_policy", action='store_true',
@@ -292,6 +293,6 @@ def get_config():
     # pretrained parameters
     parser.add_argument("--model_dir", type=str, default=None, help="by default None. set the path to pretrained model.")
     parser.add_argument("--algorithm_mode", type=str, default='ops', help="by default None. set the path to pretrained model.")
-    parser.add_argument("--pretrain_dur", type=int, default=10, help="by default None. set the path to pretrained model.")
+    parser.add_argument("--pretrain_dur", type=int, default=50, help="by default None. set the path to pretrained model.")
 
     return parser
