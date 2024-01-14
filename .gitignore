@@ -12,6 +12,8 @@ figures/
 results*
 *.pt
 *.zip
+*.csv
+wandb/
 
 
 # Byte-compiled / optimized / DLL files
