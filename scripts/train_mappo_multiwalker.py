@@ -104,7 +104,7 @@ def main(args):
         os.makedirs(str(run_dir))
 
     # wandb
-    all_args.use_wandb = False
+    all_args.use_wandb = True
     if all_args.use_wandb:
         run = wandb.init(config=all_args,
                          project=all_args.env_name,
@@ -154,7 +154,7 @@ def main(args):
 
     # run experiments
     if all_args.share_policy:
-        from algorithms.mappo.runner.shared.mpe_runner import MPERunner as Runner
+        from algorithms.mappo.runner.shared.walker_runner import MPERunner as Runner
     else:
         from algorithms.mappo.runner.separated.walker_runner import MPERunner as Runner
 

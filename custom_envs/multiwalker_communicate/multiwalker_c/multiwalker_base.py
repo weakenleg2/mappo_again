@@ -112,8 +112,18 @@ class BipedalWalker(Agent):
         self.communication_count = 0
         # self.walker_message = np.zeros(11)
         # self.penalty_ratio = penalty_ratio
+        # self.walker_message_buffer = []
     
-
+    # def process_message_buffer(self, current_step):
+    #     new_buffer = []
+    #     received_message = None
+    #     for message, deliver_at_step in self.message_buffer:
+    #         if deliver_at_step <= current_step:
+    #             received_message = message  # Assume last message in time window is used
+    #         else:
+    #             new_buffer.append((message, deliver_at_step))
+    #     self.walker_message_buffer = new_buffer
+    #     return received_message
     def _destroy(self):
         if not self.hull:
             return
@@ -324,6 +334,7 @@ class BipedalWalker(Agent):
                 spaces.Discrete(2),
                 ]
             )
+    
 
 
 class MultiWalkerEnv:
@@ -389,8 +400,27 @@ class MultiWalkerEnv:
         self.frames = 0
         
         self.last_message = np.zeros(8)
+        self.message_buffer = []
         
+    def send_message(self, message, target_agent_id, delay=3):
+        current_step = self.get_cycle_count()
+        deliver_at_step = current_step + delay
+        self.message_buffer.append((message, deliver_at_step, target_agent_id))
+        if len(self.message_buffer) > 10:
+            self.message_buffer.pop(0)
+
     
+    def process_message_buffer(self, agent_id, current_step):
+        received_message = np.zeros(8)
+        new_buffer = []
+        for message, deliver_at_step, target_agent_id in self.message_buffer:
+            if deliver_at_step <= current_step and target_agent_id == agent_id:
+                received_message = message  # Last message for this agent in time window
+            else:
+                new_buffer.append((message, deliver_at_step, target_agent_id))
+        self.message_buffer = new_buffer
+        return received_message
+
     def get_cycle_count(self):
         return self.frames
     def get_param_values(self):
@@ -469,6 +499,7 @@ class MultiWalkerEnv:
         self.scroll = 0.0
         self.lidar_render = 0
         self.last_message = np.zeros(8)
+        self.message_buffer = []
         
 
         self._generate_package()
@@ -486,8 +517,11 @@ class MultiWalkerEnv:
         r, d, o = self.scroll_subroutine()
         self.last_rewards = [0 for _ in range(self.n_walkers)]
         self.last_dones = [False for _ in range(self.n_walkers)]
-        
-        self.last_obs = o
+        for i in range(self.n_walkers):
+            # message = self.process_message_buffer(i,current_step = current_step)
+            # print("message",message)
+            # self.last_obs[i] = np.concatenate([mod_obs[i], message])
+            self.last_obs[i] = np.concatenate([o[i],np.zeros(8)])
         self.frames = 0
 
         return self.observe(0)
@@ -533,7 +567,10 @@ class MultiWalkerEnv:
 
             else:
                 self.last_message[-1]+=1
-            obs.append(np.concatenate([walker_obs, self.last_message]))
+            self.send_message(self.last_message,i,delay=3)
+            
+            # obs.append(np.concatenate([walker_obs, self.last_message]))
+            obs.append(walker_obs)
 
             shaping = -5.0 * abs(walker_obs[0])
 
@@ -581,8 +618,14 @@ class MultiWalkerEnv:
         self.walkers[agent_id].apply_action(action)
         if is_last:
             self.world.Step(1.0 / FPS, 6 * 30, 2 * 30)
+            current_step = self.get_cycle_count()
             rewards, done, mod_obs = self.scroll_subroutine()
-            self.last_obs = mod_obs
+            # print("mode",mod_obs)
+
+            for i in range(self.n_walkers):
+                message = self.process_message_buffer(i,current_step = current_step)
+                # print("message",message)
+                self.last_obs[i] = np.concatenate([mod_obs[i], message])
             for i in range(self.n_walkers):
                 # print(self.walkers[i].comm_signal)
                 if self.walkers[i].comm_signal>0:

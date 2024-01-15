@@ -75,7 +75,7 @@ class Runner(object):
         self.policy = []
         for agent_id in range(self.num_agents):
             share_observation_space = self.envs.share_observation_space if self.use_centralized_V else self.envs.observation_space('agent_0')
-            # print("self.envs.share_observation_space",self.envs.share_observation_space)
+            # print("self.envs.share_observation_space",self.envs.share_observation_space('agent_0'))
             # policy network
             po = Policy(self.all_args,
                         self.envs.observation_space('agent_0'),
@@ -83,8 +83,30 @@ class Runner(object):
                         self.envs.action_space('agent_0'),
                         device = self.device)
             self.policy.append(po)
+        # agent_classifications = [0, 1, 0]
 
+        # # Dictionary to store policies for each class
+        # class_policies = {}
 
+        # for agent_id in range(self.num_agents):
+        #     # Get the class of the current agent
+        #     agent_class = agent_classifications[agent_id]
+
+        #     # Check if we already have a policy for this class
+        #     if agent_class not in class_policies:
+        #         # Create a new policy for this class
+        #         share_observation_space = self.envs.share_observation_space if self.use_centralized_V else self.envs.observation_space('agent_0')
+        #         class_policy = Policy(self.all_args,
+        #                             self.envs.observation_space('agent_0'),
+        #                             share_observation_space,
+        #                             self.envs.action_space('agent_0'),
+        #                             device=self.device)
+        #         class_policies[agent_class] = class_policy
+
+        #     # Assign the class policy to the agent
+        #     self.policy.append(class_policies[agent_class])
+
+        print(self.policy)
         self.trainer = []
         self.buffer = []
         for agent_id in range(self.num_agents):
