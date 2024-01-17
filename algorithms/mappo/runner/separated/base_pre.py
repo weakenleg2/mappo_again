@@ -58,16 +58,7 @@ class Runner(object):
                                        
                                        self.envs.action_space('agent_0')
                                        )
-        # env_dict = {
-        # "obs": {"shape": self.envs.observation_space('agent_0'), "dtype": np.float32},
-        # "rew": {"shape": 1, "dtype": np.float32},
-        # "next_obs": {"shape": self.envs.observation_space('agent_0'), "dtype": np.float32},
-        # "done": {"shape": 1, "dtype": np.float32},
-        # "act": {"shape": self.envs.action_space('agent_0'), "dtype": np.float32},
-        # "agent": {"shape": self.num_agents, "dtype": np.float32},
-        # }
-        # rb = ReplayBuffer(int(self.num_agents * ops['pretraining_steps'] * parallel_envs * n_steps), env_dict)
-
+        
         if self.use_render:
             import imageio
             self.run_dir = config["run_dir"]

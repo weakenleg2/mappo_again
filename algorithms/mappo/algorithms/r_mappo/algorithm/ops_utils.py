@@ -1,25 +1,7 @@
-# import pickle
-# import tempfile
 
-# import numpy as np
-# import torch
-# from cpprb import ReplayBuffer, create_before_add_func, create_env_dict
-# from kmeans_pytorch import kmeans
-# from sklearn.cluster import KMeans
-# from sklearn.metrics import silhouette_score, davies_bouldin_score
-# from sacred import Ingredient
-# from torch import nn
-# from torch.utils.data import DataLoader, Dataset
-# from tqdm import tqdm
-# import matplotlib.pyplot as plt
-# import matplotlib.colors as mcolors
-
-# from model import LinearVAE
 import torch
 from torch import nn
-from torch.utils.data import DataLoader, Dataset
 from tqdm import tqdm
-import matplotlib.pyplot as plt
 from sklearn.cluster import KMeans
 from sklearn.metrics import davies_bouldin_score
 # from sacred import Ingredient
@@ -118,7 +100,7 @@ def compute_clusters(rb, agent_count, batch_size, clusters, lr, epochs, z_featur
             reconstruction, mu, logvar = model(batch_encode, batch_extra_decoder)
             bce_loss = criterion(reconstruction, batch_reconstruct)
             loss = final_loss(bce_loss, mu, logvar)
-            wandb.log({"loss": loss})
+            wandb.log({"loss": loss/num_samples})
             running_loss += loss.item()
             loss.backward()
             optimizer.step()
@@ -157,26 +139,8 @@ def compute_clusters(rb, agent_count, batch_size, clusters, lr, epochs, z_featur
     #     plot_clusters(kmeans.cluster_centers_, z)
     return torch.from_numpy(cluster_ids_x).long()
 
-# @ops_ingredient.capture
-# def plot_clusters(cluster_centers, z, human_selected_idx, _run):
 
-#     if human_selected_idx is None:
-#         plt.plot(z[:, 0], z[:, 1], 'o')
-#         plt.plot(cluster_centers[:, 0], cluster_centers[:, 1], 'x')
 
-#         for i in range(z.shape[0]):
-#             plt.annotate(str(i), xy=(z[i, 0], z[i, 1]))
-
-#     else:
-#         colors = 'bgrcmykw'
-#         for i in range(len(human_selected_idx)):
-#             plt.plot(z[i, 0], z[i, 1], 'o' + colors[human_selected_idx[i]])
-
-#         plt.plot(cluster_centers[:, 0], cluster_centers[:, 1], 'x')
-#     with tempfile.NamedTemporaryFile(suffix=".png", delete=False) as tmpfile:
-#         plt.savefig(tmpfile, format="png") # File position is at the end of the file.
-#         _run.add_artifact(tmpfile.name, f"cluster.png")
-#     # plt.savefig("cluster.png")
 
 def find_optimal_cluster_number(X):
 

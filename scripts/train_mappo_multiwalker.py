@@ -18,12 +18,14 @@ def make_train_env(all_args):
     def get_env_fn(rank):
         def init_env():
             env = multiwalker_com.parallel_env(n_walkers=all_args.num_agents, position_noise=0, 
-                                                angle_noise=0, forward_reward=5.0, terminate_reward=-100.0,
+                                                angle_noise=0, forward_reward=8.0, terminate_reward=-100.0,
                                                 fall_reward=-10.0, shared_reward=False,
                                                 terminate_on_fall=True,remove_on_fall=True,
                                                 terrain_length=200,
                                                 penalty_ratio=all_args.com_ratio,
-                                                full_comm=all_args.full_comm,max_cycles=500)
+                                                full_comm=all_args.full_comm,
+                                                delay = all_args.delay,
+                                                max_cycles=500)
             return env
         return init_env
     if all_args.n_rollout_threads == 1:
@@ -55,7 +57,7 @@ def parse_args(args, parser):
                         default='Multiwalker', help="Which scenario to run on")
     # parser.add_argument("--num_landmarks", type=int, default=3)
     parser.add_argument('--num_agents', type=int,
-                        default=3, help="number of players")
+                        default=4, help="number of players")
 
     all_args = parser.parse_known_args(args)[0]
 
@@ -104,7 +106,7 @@ def main(args):
         os.makedirs(str(run_dir))
 
     # wandb
-    all_args.use_wandb = True
+    all_args.use_wandb = False
     if all_args.use_wandb:
         run = wandb.init(config=all_args,
                          project=all_args.env_name,
@@ -205,8 +207,9 @@ def simple_train(args):
         os.makedirs(str(run_dir))
 
     # wandb
-    all_args.use_wandb = False
+    all_args.use_wandb = True
     if all_args.use_wandb:
+        print("here")
         run = wandb.init(config=all_args,
                          project=all_args.env_name,
                          entity=all_args.user_name,

@@ -110,20 +110,7 @@ class BipedalWalker(Agent):
         self.comm_signal = 0
         self.full_comm = full_comm
         self.communication_count = 0
-        # self.walker_message = np.zeros(11)
-        # self.penalty_ratio = penalty_ratio
-        # self.walker_message_buffer = []
-    
-    # def process_message_buffer(self, current_step):
-    #     new_buffer = []
-    #     received_message = None
-    #     for message, deliver_at_step in self.message_buffer:
-    #         if deliver_at_step <= current_step:
-    #             received_message = message  # Assume last message in time window is used
-    #         else:
-    #             new_buffer.append((message, deliver_at_step))
-    #     self.walker_message_buffer = new_buffer
-    #     return received_message
+        
     def _destroy(self):
         if not self.hull:
             return
@@ -356,6 +343,8 @@ class MultiWalkerEnv:
         terrain_length=TERRAIN_LENGTH,
         penalty_ratio = 0.5,
         full_comm=True,
+        delay = 10,
+        packet_drop_prob=0.1,
         max_cycles=500,
         render_mode=None,
     ):
@@ -398,15 +387,21 @@ class MultiWalkerEnv:
         self.max_cycles = max_cycles
         self.render_mode = render_mode
         self.frames = 0
+        self.delay = delay
+        self.packet_drop_prob = packet_drop_prob
+
+        # print(self.delay)
         
         self.last_message = np.zeros(8)
         self.message_buffer = []
         
-    def send_message(self, message, target_agent_id, delay=3):
-        current_step = self.get_cycle_count()
-        deliver_at_step = current_step + delay
-        self.message_buffer.append((message, deliver_at_step, target_agent_id))
-        if len(self.message_buffer) > 10:
+    def send_message(self, message, target_agent_id, delay):
+        if np.random.rand() >= self.packet_drop_prob:
+
+            current_step = self.get_cycle_count()
+            deliver_at_step = current_step + delay
+            self.message_buffer.append((message, deliver_at_step, target_agent_id))
+        if len(self.message_buffer) > (delay+5):
             self.message_buffer.pop(0)
 
     
@@ -567,7 +562,7 @@ class MultiWalkerEnv:
 
             else:
                 self.last_message[-1]+=1
-            self.send_message(self.last_message,i,delay=3)
+            self.send_message(self.last_message,i,delay=self.delay)
             
             # obs.append(np.concatenate([walker_obs, self.last_message]))
             obs.append(walker_obs)
@@ -632,7 +627,7 @@ class MultiWalkerEnv:
                     # paramter tuning
                     # if rewards[i]<0:
                     # print(rewards[i])
-                    rewards[i] = rewards[i]-0.05
+                    rewards[i] = rewards[i]-self.penalty_ratio
                     # need to be tuned
                     # else:
                     #     rewards[i] = rewards[i]*(1-self.penalty_ratio)

@@ -183,8 +183,10 @@ def get_config():
     parser.add_argument("--use_obs_instead_of_state", action='store_true',
                         default=False, help="Whether to use global state or concatenated obs")
     parser.add_argument("--full_comm", action='store_true', help="if agents have full communication")
-    parser.add_argument("--com_ratio", type=float, default=0.5, help="Ratio for agent communication penalty")
+    parser.add_argument("--com_ratio", type=float, default=0.05, help="Ratio for agent communication penalty,0.05 default for multiwalker,0.1 for simple spread")
     parser.add_argument("--local_ratio", type=float, default=0.5, help="Ratio for agent rewards")
+    parser.add_argument("--delay", type=int, default=0, help="delay frames.")
+    parser.add_argument("--packet_drop_prob", type=int, default=0, help="drop prob")
 
     # replay buffer parameters
     parser.add_argument("--episode_length", type=int,
@@ -293,6 +295,6 @@ def get_config():
     # pretrained parameters
     parser.add_argument("--model_dir", type=str, default=None, help="by default None. set the path to pretrained model.")
     parser.add_argument("--algorithm_mode", type=str, default='ops', help="by default None. set the path to pretrained model.")
-    parser.add_argument("--pretrain_dur", type=int, default=50, help="by default None. set the path to pretrained model.")
+    parser.add_argument("--pretrain_dur", type=int, default=10, help="by default None. set the path to pretrained model.")
 
     return parser

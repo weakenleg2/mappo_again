@@ -103,6 +103,8 @@ class MPERunner(Runner):
                 # print("infos",infos)
 
                 obs = self.dict_to_tensor(obs)
+                # if episode ==0:
+                #     print("here",obs)
                 # print(obs.shape)
                 rewards = self.dict_to_tensor(rewards, False)
                 # print(rewards.shape)

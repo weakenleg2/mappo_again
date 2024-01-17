@@ -71,16 +71,16 @@ class ReplayBuffer:
             #     self.one_hot_list_buffer.append(one_hot_list)
             #     self.rewards_buffer.append(reward)
 
-    def sample(self, batch_size):
-        # Implement a method to sample a batch of data from the buffer
-        pass
+    # def sample(self, batch_size):
+    #     # Implement a method to sample a batch of data from the buffer
+    #     pass
 
-    def clear(self):
-        self.actions_buffer.clear()
-        self.obs_buffer.clear()
-        self.one_hot_list_buffer.clear()
-        self.rewards_buffer.clear()
-        self.current_size = 0
+    # def clear(self):
+    #     self.actions_buffer.clear()
+    #     self.obs_buffer.clear()
+    #     self.one_hot_list_buffer.clear()
+    #     self.rewards_buffer.clear()
+    #     self.current_size = 0
 
 # Usage
 # replay_buffer = ReplayBuffer(buffer_size=10000)

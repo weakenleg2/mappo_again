@@ -18,12 +18,15 @@ def make_train_env(all_args):
     def get_env_fn(rank):
         def init_env():
             env = multiwalker_com.parallel_env(n_walkers=all_args.num_agents, position_noise=0, 
-                                                angle_noise=0, forward_reward=5.0, terminate_reward=-100.0,
+                                                angle_noise=0, forward_reward=8.0, terminate_reward=-100.0,
                                                 fall_reward=-10.0, shared_reward=False,
                                                 terminate_on_fall=True,remove_on_fall=True,
                                                 terrain_length=200,
                                                 penalty_ratio=all_args.com_ratio,
-                                                full_comm=all_args.full_comm,max_cycles=500)
+                                                full_comm=all_args.full_comm,
+                                                delay = all_args.delay,
+                                                packet_drop_prob = all_args.packet_drop_prob,
+                                                max_cycles=500)
             return env
         return init_env
     if all_args.n_rollout_threads == 1:
