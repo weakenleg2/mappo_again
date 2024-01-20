@@ -79,7 +79,7 @@ class MPERunner(Runner):
             # compute return and update network
             self.compute()
             train_infos = self.train()
-            self.render()
+            # self.render()
 
             # post process
             total_num_steps = (episode + 1) * \
@@ -116,7 +116,7 @@ class MPERunner(Runner):
                 self.log_train(train_infos, total_num_steps)
                 print('Average_episode_rewards: ', np.mean(self.buffer[0].rewards) * self.episode_length)
                 # print((tot_frames - tot_comms)/tot_frames)
-                # wandb.log({"com_savings":(tot_frames - tot_comms)/tot_frames},total_num_steps)
+                wandb.log({"com_savings":(tot_frames - tot_comms)/tot_frames},total_num_steps)
 
             # eval
             # self.writter.add_scalar('communication_savings', 1 - tot_comms / (self.episode_length * self.num_agents * self.n_rollout_threads), episode)
@@ -314,6 +314,7 @@ class MPERunner(Runner):
 
     @torch.no_grad()
     def render(self):
+        # 好像好有的救啊哥
         all_frames = []
         for episode in range(self.all_args.render_episodes):
             episode_rewards = []

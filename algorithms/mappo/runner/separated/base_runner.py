@@ -91,7 +91,7 @@ class Runner(object):
                         self.envs.action_space('agent_0'),
                         device = self.device)
             self.policy.append(po)
-        # agent_classifications = [0, 1, 0]
+        # agent_classifications = [0, 0, 0, 1]
 
         # # Dictionary to store policies for each class
         # class_policies = {}

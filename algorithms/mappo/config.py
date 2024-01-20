@@ -295,6 +295,6 @@ def get_config():
     # pretrained parameters
     parser.add_argument("--model_dir", type=str, default=None, help="by default None. set the path to pretrained model.")
     parser.add_argument("--algorithm_mode", type=str, default='ops', help="by default None. set the path to pretrained model.")
-    parser.add_argument("--pretrain_dur", type=int, default=10, help="by default None. set the path to pretrained model.")
+    parser.add_argument("--pretrain_dur", type=int, default=100, help="by default None. set the path to pretrained model.")
 
     return parser

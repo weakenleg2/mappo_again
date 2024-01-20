@@ -19,7 +19,7 @@ def make_train_env(all_args):
         def init_env():
             env = multiwalker_com.parallel_env(n_walkers=all_args.num_agents, position_noise=0, 
                                                 angle_noise=0, forward_reward=8.0, terminate_reward=-100.0,
-                                                fall_reward=-10.0, shared_reward=False,
+                                                fall_reward=-10.0, shared_reward=True,
                                                 terminate_on_fall=True,remove_on_fall=True,
                                                 terrain_length=200,
                                                 penalty_ratio=all_args.com_ratio,
@@ -58,7 +58,7 @@ def parse_args(args, parser):
                         default='Multiwalker', help="Which scenario to run on")
     # parser.add_argument("--num_landmarks", type=int, default=3)
     parser.add_argument('--num_agents', type=int,
-                        default=3, help="number of players")
+                        default=6, help="number of players")
 
     all_args = parser.parse_known_args(args)[0]
 

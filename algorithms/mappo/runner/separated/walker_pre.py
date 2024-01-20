@@ -137,7 +137,7 @@ class MPERunner(Runner):
             # print(self.easy_buffer.one_hot_list_buffer)
             if episode == (self.pretrain_dur):
                 cluster_idx = compute_clusters(self.easy_buffer, 
-                                        self.all_args.num_agents,self.all_args.num_mini_batch*256, None, 
+                                        self.all_args.num_agents,self.all_args.num_mini_batch*512, None, 
                                         1e-4, 10, 10, 0.0001, self.device)
                 print(cluster_idx)
                 sys.exit(0)
