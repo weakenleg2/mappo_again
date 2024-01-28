@@ -54,6 +54,13 @@ class Runner(object):
         # dir
         self.model_dir = self.all_args.model_dir
         self.pretrain_dur = self.all_args.pretrain_dur
+        self.vae_lr = self.all_args.vae_lr
+        self.kl = self.all_args.vae_kl
+        self.vae_epoch = self.all_args.vae_epoch
+        self.clusters = self.all_args.clusters
+        self.vae_zfeatures = self.all_args.vae_zfeatures
+        self.vae_batch = self.all_args.vae_batchsize
+        self.mid_gap = self.all_args.mid_gap
         self.easy_buffer = ReplayBuffer(self.all_args,self.envs.observation_space('agent_0'),
                                        
                                        self.envs.action_space('agent_0')
@@ -80,12 +87,31 @@ class Runner(object):
 
 
         from algorithms.mappo.algorithms.r_mappo.r_mappo import R_MAPPO as TrainAlgo
-        from algorithms.mappo.algorithms.r_mappo.algorithm.rMAPPOPolicy_pre import R_MAPPOPolicy as Policy
-            
+        from algorithms.mappo.algorithms.r_mappo.algorithm.rMAPPOPolicy import R_MAPPOPolicy as Policy
 
-
-
+        # agent_classifications = [0, 1, 1, 1, 1, 2]
         self.policy = []
+
+        # # Dictionary to store policies for each class
+        # class_policies = {}
+
+        # for agent_id in range(self.num_agents):
+        #     # Get the class of the current agent
+        #     agent_class = agent_classifications[agent_id]
+
+        #     # Check if we already have a policy for this class
+        #     if agent_class not in class_policies:
+        #         # Create a new policy for this class
+        #         share_observation_space = self.envs.share_observation_space if self.use_centralized_V else self.envs.observation_space('agent_0')
+        #         class_policy = Policy(self.all_args,
+        #                             self.envs.observation_space('agent_0'),
+        #                             share_observation_space,
+        #                             self.envs.action_space('agent_0'),
+        #                             device=self.device)
+        #         class_policies[agent_class] = class_policy
+
+        #     # Assign the class policy to the agent
+        #     self.policy.append(class_policies[agent_class])
         for agent_id in range(self.num_agents):
             share_observation_space = self.envs.share_observation_space if self.use_centralized_V else self.envs.observation_space('agent_0')
             # print("self.envs.share_observation_space",self.envs.share_observation_space)
@@ -95,12 +121,9 @@ class Runner(object):
                         self.envs.observation_space('agent_0'),
                         share_observation_space,
                         self.envs.action_space('agent_0'),
-                        self.model_count,
                         device = self.device)
-            po.sample_laac(self.n_rollout_threads)
-            if self.all_args.algorithm_mode == 'ops':
-                po.laac_sample = torch.zeros(self.n_rollout_threads, self.all_args.num_agents).long()
             self.policy.append(po)
+        print(self.policy)
 
 
         self.trainer = []

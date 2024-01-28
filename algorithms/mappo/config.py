@@ -295,6 +295,14 @@ def get_config():
     # pretrained parameters
     parser.add_argument("--model_dir", type=str, default=None, help="by default None. set the path to pretrained model.")
     parser.add_argument("--algorithm_mode", type=str, default='ops', help="by default None. set the path to pretrained model.")
-    parser.add_argument("--pretrain_dur", type=int, default=100, help="by default None. set the path to pretrained model.")
+    parser.add_argument("--pretrain_dur", type=int, default=50, help="pretrainsteps.")
+    parser.add_argument("--vae_lr", type=float, default=5e-5, help="lr for vae.")
+    parser.add_argument("--clusters", type=int, default=None, help="clusters.")
+    parser.add_argument("--vae_epoch", type=int, default=10, help="epoch for vae")
+    parser.add_argument("--vae_zfeatures", type=int, default=10, help="features for vae")
+    parser.add_argument("--vae_kl", type=float, default=0.0001, help="kl for vae")
+    parser.add_argument("--vae_batchsize", type=int, default=512, help="kl for vae")
+    parser.add_argument("--mid_gap", type=int, default=900, help="kl for vae")
+
 
     return parser

@@ -2,14 +2,18 @@ import numpy as np
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-
-
+# scaler = StandardScaler()
+# X_scaled = scaler.fit_transform(X)
+# pca = PCA(n_components=n_components)
+# X_pca = pca.fit_transform(X_scaled)
+# 对于latent space的操作
 class LinearVAE(nn.Module):
     def __init__(self, features, input_size, extra_decoder_input, reconstruct_size):
         super(LinearVAE, self).__init__()
         HIDDEN=64
         self.features = features
         self.num_layers = 2
+        # self.dropout_rate = dropout_rate
         # encoder
         # self.gru = nn.GRU(input_size=input_size, hidden_size=HIDDEN, batch_first=True) # not used for now
         
@@ -23,6 +27,7 @@ class LinearVAE(nn.Module):
         # Encoder fully connected layers
         self.encoder = nn.Sequential(
             nn.Linear(in_features=HIDDEN, out_features=2*features)
+            # nn.Dropout(dropout_rate)
         )
         # var and mean
         # self.decoder = nn.Sequential(
@@ -32,8 +37,11 @@ class LinearVAE(nn.Module):
         #     nn.ReLU(),
         #     nn.Linear(in_features=HIDDEN, out_features=reconstruct_size),
         # )
-        self.decoder_rnn = nn.GRU(input_size=features + extra_decoder_input, hidden_size=HIDDEN, num_layers=self.num_layers, batch_first=True)
-        self.decoder = nn.Linear(HIDDEN, reconstruct_size)
+        self.decoder_rnn = nn.GRU(input_size=features + extra_decoder_input, 
+                                  hidden_size=HIDDEN, num_layers=self.num_layers) 
+                                #   batch_first=True,dropout=dropout_rate)
+        self.decoder = nn.Sequential(nn.Linear(HIDDEN, reconstruct_size))
+                                    #  nn.Dropout(dropout_rate))
  
     def reparameterize(self, mu, log_var):
         """
@@ -57,6 +65,7 @@ class LinearVAE(nn.Module):
     def forward(self, x, xp):
         # encoding
         x, _ = self.gru(x)
+        # print("x",x.shape)
         # encode input obs transition and reward function
         x = self.encoder(x)
         
@@ -65,6 +74,7 @@ class LinearVAE(nn.Module):
         
         # get the latent vector through reparameterization
         z = self.reparameterize(mu, log_var)
+        # print("z",z.shape)
         # figure 2, z
         # decoder_hidden = z.unsqueeze(0).repeat(self.num_layers, 1, 1)
 

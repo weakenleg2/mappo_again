@@ -8,14 +8,53 @@ from gymnasium.spaces.utils import flatdim
 
 from algorithms.mappo.utils.util import update_linear_schedule
 from algorithms.mappo.runner.separated.base_runner import Runner
+from algorithms.mappo.algorithms.r_mappo.algorithm.ops_utils import compute_clusters
 import imageio
-
+from collections import Counter
 def _t2n(x):
     return x.detach().cpu().numpy()
+def normalize_indices(cluster_indices):
+    normalized_indices = []
+    for indices in cluster_indices:
+        # Track the unique labels encountered in order and their normalized mappings
+        unique_labels = {}
+        next_label = 0
+        normalized = []
+        
+        for index in indices:
+            if index not in unique_labels:
+                # Encounter a new label, assign it the next available normalized label
+                unique_labels[index] = next_label
+                next_label += 1
+            
+            # Map the original label to the normalized label
+            normalized_label = unique_labels[index]
+            normalized.append(normalized_label)
+        
+        normalized_indices.append(normalized)
+    
+    return normalized_indices
 
+def find_most_common_index(index_counter):
+    most_common = index_counter.most_common(2)  # Get the top 2 to check for a tie
+    if most_common:
+        # Check if there's more than one result and they have the same count
+        if len(most_common) > 1 and most_common[0][1] == most_common[1][1]:
+            print("Tie detected. Choosing one arbitrarily.")
+        # Extract the index from the list (choose the first one in case of a tie)
+        most_common_index = list(most_common[0][0])
+        return most_common_index
+    else:
+        return None
+
+def count_normalized_indices(normalized_indices):
+    # Convert the list of indices to a tuple so it can be used as a key in the counter
+    index_tuples = [tuple(index) for index in normalized_indices]
+    index_counter = Counter(index_tuples)
+    return index_counter
 class MPERunner(Runner):
-    def __init__(self, config):
-        super(MPERunner, self).__init__(config)
+    def __init__(self, most_common_index,config):
+        super(MPERunner, self).__init__(most_common_index,config)
 
     def dict_to_tensor(self, x, iterable=True):
         #obs_shape = self.envs.observation_space('agent_0').shape
@@ -38,6 +77,7 @@ class MPERunner(Runner):
         start = time.time()
         episodes = int(
             self.num_env_steps) // self.episode_length // self.n_rollout_threads
+        cluster_indices_list = []
 
         for episode in range(episodes):
             if self.use_linear_lr_decay:
@@ -50,9 +90,27 @@ class MPERunner(Runner):
                 # Sample actions
                 values, actions, action_log_probs, rnn_states, rnn_states_critic, actions_env = self.collect(
                     step)
+                # print(type(actions))
+                # if step == 0:
+                #     print(actions.shape)
+                # # print(torch.nn.functional.one_hot(torch.tensor(actions,dtype=torch.int64), num_classes=actions.shape[-1]))
+                # # Obser reward and next obs
+                #     print(actions_env)
+                one_hot_list = []
+                for i in range(self.all_args.num_agents):
+                    one_hot_agent = torch.nn.functional.one_hot(torch.tensor(i), self.all_args.num_agents)
+                    one_hot_list.append(one_hot_agent)
 
-                # Obser reward and next obs
-                # print(actions_env)
+                # Combine into a single tensor
+                combined_matrix = torch.stack(one_hot_list)
+
+                # Repeat the combined matrix to get a shape of (32, 3, 3)
+                repeated_matrix = combined_matrix.repeat(self.all_args.n_rollout_threads, 1, 1)
+                # if step ==0:
+                #     print(repeated_matrix.shape)
+                    
+
+                # print(len(one_hot_list))
                 obs, rewards, dones, infos = self.envs.step(actions_env)
                 # print(self.envs.get_cycle_count)
                 # print("obs",type(obs))
@@ -74,9 +132,58 @@ class MPERunner(Runner):
 
 
                 # insert data into buffer
+                # if 150 < episode <= (150+self.pretrain_dur):
+                    # 160
+                # if step >=self.episode_length // 2:
+                self.easy_buffer.insert(action=np.clip(actions,-1,1), obs=obs, one_hot_list=repeated_matrix, reward=rewards,dones=dones)
+                # print()
+                    # self.easy_buffer.insert(action=actions,obs=obs,one_hot_list=repeated_matrix,reward=rewards)
                 self.insert(data)
 
             # compute return and update network
+            # print(self.easy_buffer.one_hot_list_buffer)
+            for iteration in range(5):
+                if (episode == (self.pretrain_dur+self.mid_gap + iteration * 10)):
+
+                    cluster_idx = compute_clusters(self.easy_buffer, 
+                                                self.all_args.num_agents,
+                                                self.vae_batch,
+                                                self.clusters, 
+                                                self.vae_lr, self.vae_epoch, self.vae_zfeatures, 
+                                                self.kl, self.device)
+                    # print(f"Iteration {iteration}, cluster_idx: {cluster_idx}")
+                    cluster_indices_list.append(cluster_idx.cpu().numpy())
+
+                if len(cluster_indices_list) == 5:
+                    normalized_indices = normalize_indices(cluster_indices_list)
+                    index_counter = count_normalized_indices(normalized_indices)
+                    most_common_index = find_most_common_index(index_counter)
+                    
+                    
+                    print("normalized_indices", normalized_indices)
+                    print("most_common_index", most_common_index)
+                    # return most_common_index
+                    
+                    
+                    # Clear the list to start collecting new clustering results
+                    cluster_indices_list = []
+                    cluster_to_policy_index = {}
+                    for agent_id, cluster_idx in enumerate(most_common_index):
+                        if cluster_idx not in cluster_to_policy_index:
+                            # The first time we see this cluster index, we map it to the current agent's policy index
+                            cluster_to_policy_index[cluster_idx] = agent_id
+
+                    # Step 2: Reassign policies based on cluster_to_policy_index
+                    for agent_id, cluster_idx in enumerate(most_common_index):
+                        # Get the policy index of the first agent in this cluster
+                        policy_index = cluster_to_policy_index[cluster_idx]
+                        # Assign this policy to the current agent
+                        self.policy[agent_id] = self.policy[policy_index]
+                    print(self.policy)
+                    # print(f"Iteration {iteration}, most_common_index: {most_common_index}
+                    # sys.exit(0)
+            # for agent_id in range(self.num_agents):
+            #     self.policy[agent_id].laac_sample= cluster_idx.repeat(self.n_rollout_threads, 1)
             self.compute()
             train_infos = self.train()
             # self.render()

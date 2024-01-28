@@ -174,7 +174,7 @@ from algorithms.mappo.algorithms.r_mappo.algorithm.vae import LinearVAE
 import wandb
 
 # Initialize a new run
-wandb.init(project="vae_classification", entity="2017920898")
+# wandb.init(project="vae_classification", entity="2017920898")
 
 
 def normalize_data(buffer):
@@ -189,6 +189,7 @@ def normalize_data(buffer):
     normalized_buffer = (buffer - mean) / (std+1e-6)
     return normalized_buffer
 def compute_clusters(rb, agent_count, batch_size, clusters, lr, epochs, z_features, kl_weight, device):
+    # print("here!!!!",f"{lr:.5e}")
     # device = 'cpu'
     device =device
     # dataset = rbDataSet(rb,encoder_in,decoder_in,reconstruct)

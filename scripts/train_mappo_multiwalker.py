@@ -20,7 +20,7 @@ def make_train_env(all_args):
         def init_env():
             env = multiwalker_com.parallel_env(n_walkers=all_args.num_agents, position_noise=0, 
                                                 angle_noise=0, forward_reward=8.0, terminate_reward=-100.0,
-                                                fall_reward=-10.0, shared_reward=True,
+                                                fall_reward=-10.0, shared_reward=False,
                                                 terminate_on_fall=True,remove_on_fall=True,
                                                 terrain_length=200,
                                                 penalty_ratio=all_args.com_ratio,
@@ -29,6 +29,8 @@ def make_train_env(all_args):
                                                 packet_drop_prob = all_args.packet_drop_prob,
                                                 max_cycles=500)
             # means no individual death agent
+            # env.seed(all_args.seed)
+            # env.seed(all_args.seed + rank * 10000)
             return env
         return init_env
     if all_args.n_rollout_threads == 1:

@@ -13,10 +13,52 @@ from algorithms.mappo.algorithms.r_mappo.algorithm.ops_utils import compute_clus
 import imageio
 import sys
 import pandas as pd
+from collections import Counter
+
 
 
 def _t2n(x):
     return x.detach().cpu().numpy()
+def normalize_indices(cluster_indices):
+    normalized_indices = []
+    for indices in cluster_indices:
+        # Track the unique labels encountered in order and their normalized mappings
+        unique_labels = {}
+        next_label = 0
+        normalized = []
+        
+        for index in indices:
+            if index not in unique_labels:
+                # Encounter a new label, assign it the next available normalized label
+                unique_labels[index] = next_label
+                next_label += 1
+            
+            # Map the original label to the normalized label
+            normalized_label = unique_labels[index]
+            normalized.append(normalized_label)
+        
+        normalized_indices.append(normalized)
+    
+    return normalized_indices
+
+def find_most_common_index(index_counter):
+    most_common = index_counter.most_common(2)  # Get the top 2 to check for a tie
+    if most_common:
+        # Check if there's more than one result and they have the same count
+        if len(most_common) > 1 and most_common[0][1] == most_common[1][1]:
+            print("Tie detected. Choosing one arbitrarily.")
+        # Extract the index from the list (choose the first one in case of a tie)
+        most_common_index = list(most_common[0][0])
+        return most_common_index
+    else:
+        return None
+
+def count_normalized_indices(normalized_indices):
+    # Convert the list of indices to a tuple so it can be used as a key in the counter
+    index_tuples = [tuple(index) for index in normalized_indices]
+    index_counter = Counter(index_tuples)
+    return index_counter
+
 def save_to_csv(data, num_agents, filename_prefix, episode, step):
     # act,obs,rew data
     num_instances, _, feature_size = data.shape
@@ -59,6 +101,7 @@ class MPERunner(Runner):
         start = time.time()
         episodes = int(
             self.num_env_steps) // self.episode_length // self.n_rollout_threads
+        cluster_indices_list = []
         # print(episodes)
 
         for episode in range(episodes):
@@ -135,12 +178,46 @@ class MPERunner(Runner):
             # print(self.easy_buffer.rewards_buffer)
             # compute return and update network
             # print(self.easy_buffer.one_hot_list_buffer)
-            if episode == (self.pretrain_dur):
-                cluster_idx = compute_clusters(self.easy_buffer, 
-                                        self.all_args.num_agents,self.all_args.num_mini_batch*512, None, 
-                                        1e-4, 10, 10, 0.0001, self.device)
-                print(cluster_idx)
-                sys.exit(0)
+            for iteration in range(5):
+                if (episode == (self.pretrain_dur + iteration * 10)):
+
+                    cluster_idx = compute_clusters(self.easy_buffer, 
+                                                self.all_args.num_agents,
+                                                self.vae_batch,
+                                                self.clusters, 
+                                                self.vae_lr, self.vae_epoch, self.vae_zfeatures, 
+                                                self.kl, self.device)
+                    # print(f"Iteration {iteration}, cluster_idx: {cluster_idx}")
+                    cluster_indices_list.append(cluster_idx.cpu().numpy())
+
+                if len(cluster_indices_list) == 5:
+                    normalized_indices = normalize_indices(cluster_indices_list)
+                    index_counter = count_normalized_indices(normalized_indices)
+                    most_common_index = find_most_common_index(index_counter)
+                    
+                    
+                    print("normalized_indices", normalized_indices)
+                    print("most_common_index", most_common_index)
+                    return most_common_index
+                    
+                    
+                    # Clear the list to start collecting new clustering results
+                    cluster_indices_list = []
+                    cluster_to_policy_index = {}
+                    for agent_id, cluster_idx in enumerate(most_common_index):
+                        if cluster_idx not in cluster_to_policy_index:
+                            # The first time we see this cluster index, we map it to the current agent's policy index
+                            cluster_to_policy_index[cluster_idx] = agent_id
+
+                    # Step 2: Reassign policies based on cluster_to_policy_index
+                    for agent_id, cluster_idx in enumerate(most_common_index):
+                        # Get the policy index of the first agent in this cluster
+                        policy_index = cluster_to_policy_index[cluster_idx]
+                        # Assign this policy to the current agent
+                        self.policy[agent_id] = self.policy[policy_index]
+                    print(self.policy)
+                    # print(f"Iteration {iteration}, most_common_index: {most_common_index}
+                    # sys.exit(0)
             # for agent_id in range(self.num_agents):
             #     self.policy[agent_id].laac_sample= cluster_idx.repeat(self.n_rollout_threads, 1)
             self.compute()
@@ -181,7 +258,7 @@ class MPERunner(Runner):
                 self.log_train(train_infos, total_num_steps)
                 print('Average_episode_rewards: ', np.mean(self.buffer[0].rewards) * self.episode_length)
                 # print((tot_frames - tot_comms)/tot_frames)
-                # wandb.log({"com_savings":(tot_frames - tot_comms)/tot_frames},total_num_steps)
+                wandb.log({"com_savings":(tot_frames - tot_comms)/tot_frames},total_num_steps)
 
             # eval
             # self.writter.add_scalar('communication_savings', 1 - tot_comms / (self.episode_length * self.num_agents * self.n_rollout_threads), episode)
