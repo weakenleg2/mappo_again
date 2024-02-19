@@ -154,6 +154,7 @@ class MPERunner(Runner):
                                                   self.buffer.rnn_states_critic[step]),
                                               np.concatenate(self.buffer.masks[step]))
        # [self.envs, agents, dim]
+    #   print("obs",np.concatenate(self.buffer.obs[step,]).shape)
       values = np.array(np.split(_t2n(value), self.n_rollout_threads))
       actions = np.array(np.split(_t2n(action), self.n_rollout_threads))
       action_log_probs = np.array(

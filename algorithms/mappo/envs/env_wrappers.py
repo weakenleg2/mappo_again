@@ -153,6 +153,10 @@ def worker(remote, parent_remote, env_fn_wrapper):
                     ob = env.reset()
 
             remote.send((ob, reward, done, info))
+        elif cmd == 'state':
+            state = env.state()
+            # print("state here",state)
+            remote.send(state)
         elif cmd == 'reset':
             ob = env.reset()
             remote.send((ob))
@@ -271,6 +275,12 @@ class SubprocVecEnv(ShareVecEnv):
             remote.send(('reset', None))
         obs = [remote.recv() for remote in self.remotes]
         return np.stack(obs)
+    def state(self):
+        for remote in self.remotes:
+            remote.send(('state', None))
+        state = [remote.recv() for remote in self.remotes]
+        # print("state",state)
+        return np.stack(state)
 
 
     def reset_task(self):
@@ -301,21 +311,23 @@ class SubprocVecEnv(ShareVecEnv):
 def shareworker(remote, parent_remote, env_fn_wrapper):
     parent_remote.close()
     env = env_fn_wrapper.x()
+    # print("env",env)
     while True:
         cmd, data = remote.recv()
         if cmd == 'step':
-            ob, s_ob, reward, done, info, available_actions = env.step(data)
+            ob, s_ob, reward, done, info = env.step(data)
             if 'bool' in done.__class__.__name__:
                 if done:
-                    ob, s_ob, available_actions = env.reset()
+                    ob, s_ob = env.reset()
             else:
                 if np.all(done):
-                    ob, s_ob, available_actions = env.reset()
+                    ob, s_ob = env.reset()
 
-            remote.send((ob, s_ob, reward, done, info, available_actions))
+            remote.send((ob, s_ob, reward, done, info))
         elif cmd == 'reset':
-            ob, s_ob, available_actions = env.reset()
-            remote.send((ob, s_ob, available_actions))
+            # print(env.reset())
+            ob, s_ob = env.reset()
+            remote.send((ob, s_ob))
         elif cmd == 'reset_task':
             ob = env.reset_task()
             remote.send(ob)
@@ -331,7 +343,7 @@ def shareworker(remote, parent_remote, env_fn_wrapper):
             break
         elif cmd == 'get_spaces':
             remote.send(
-                (env.observation_space, env.share_observation_space, env.action_space))
+                (env.observation_space, env.state_space, env.action_space))
         elif cmd == 'render_vulnerability':
             fr = env.render_vulnerability(data)
             remote.send((fr))

@@ -60,6 +60,7 @@ class LinearVAE(nn.Module):
         log_var = x[:, self.features:]
         # get the latent vector through reparameterization
         z = self.reparameterize(mu, log_var)
+        # latent variable
         return mu
         
     def forward(self, x, xp):

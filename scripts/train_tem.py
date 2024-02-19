@@ -1,4 +1,3 @@
-#!/usr/bin/env python
 import sys
 import os
 import wandb
@@ -11,7 +10,7 @@ from custom_envs.multiwalker_communicate import multiwalker_com
 from algorithms.mappo.config import get_config
 # from algorithms.mappo.envs.mpe.MPE_env import MPEEnv
 from algorithms.mappo.envs.env_wrappers import SubprocVecEnv, DummyVecEnv
-import random
+# from gymnasium import wrappers
 
 """Train script for MPEs."""
 
@@ -28,10 +27,11 @@ def make_train_env(all_args):
                                                 delay = all_args.delay,
                                                 packet_drop_prob = all_args.packet_drop_prob,
                                                 max_cycles=500)
-            # env.reset(random.randint(1, 1000) * 50000 + rank * 10000)
-            env.reset(50 + rank * 10000)
+            # means no individual death agent
+            # env.seed(all_args.seed)
+            # env.seed(all_args.seed + rank * 10000)
+            env.reset(50000 + rank * 10000)
             return env
-        
         return init_env
     if all_args.n_rollout_threads == 1:
         return DummyVecEnv([get_env_fn(0)])
@@ -85,6 +85,10 @@ def main(args):
     elif all_args.algorithm_name == "ippo":
         print("u are choosing to use ippo, we set use_centralized_V to be False")
         all_args.use_centralized_V = False
+    elif all_args.algorithm_name == "bta":
+        print("u are choosing to use bta with rnn, we set use_recurrent_policy to be True")
+        all_args.use_recurrent_policy = True
+        all_args.use_naive_recurrent_policy = False
     else:
         raise NotImplementedError
 
@@ -147,6 +151,10 @@ def main(args):
 
     # env init
     envs = make_train_env(all_args)
+    # envs.render_mode = 'rgb_array'
+    # envs = wrappers.RecordVideo(envs, video_folder=run_dir,
+    #                                     episode_trigger=lambda x: x % 50 == 0, # save video every 50 episode
+    #                                     name_prefix=all_args.env_name, disable_logger=True)
     eval_envs = make_eval_env(all_args) if all_args.use_eval else None
     num_agents = all_args.num_agents
 
@@ -161,16 +169,16 @@ def main(args):
 
     # run experiments
     # if all_args.share_policy:
-    #     from algorithms.mappo.runner.shared.mpe_runner import MPERunner as Runner
+    #     print("we choose to use shared policy for all agents")
+
+    #     from algorithms.mappo.runner.shared.walker_runner import MPERunner as Runner
     # else:
-    #     from algorithms.mappo.runner.separated.walker_runner import MPERunner as Runner
-    from algorithms.mappo.runner.separated.walker_pre import MPERunner as Runner
+    #     from algorithms.mappo.runner.separated.walker_nocomponent import MPERunner as Runner
+    if "temporal" in all_args.algorithm_name:
+        from bta.runner.temporal.hanabi_runner import HanabiRunner as Runner
+
     runner = Runner(config)
-    most_common_index=runner.run()
-    # most_common_index = [0, 0,0,0,0,0]
-    from algorithms.mappo.runner.separated.walker_runner import MPERunner as walkerRunner
-    runner_train = walkerRunner(most_common_index,config)
-    runner_train.run()
+    runner.run()
     
     # post process
     envs.close()
@@ -216,8 +224,9 @@ def simple_train(args):
         os.makedirs(str(run_dir))
 
     # wandb
-    all_args.use_wandb = False
+    all_args.use_wandb = True
     if all_args.use_wandb:
+        print("here")
         run = wandb.init(config=all_args,
                          project=all_args.env_name,
                          entity=all_args.user_name,

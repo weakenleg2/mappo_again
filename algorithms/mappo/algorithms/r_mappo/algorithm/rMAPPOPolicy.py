@@ -25,8 +25,6 @@ class R_MAPPOPolicy:
         self.obs_space = obs_space
         self.share_obs_space = cent_obs_space
         self.act_space = act_space
-        # laac_size
-        # self.laac_params = torch.nn.Parameter(torch.ones(args.num_agents-1, laac_size))
         
 
         self.actor = R_Actor(args, self.obs_space, self.act_space, self.device)
@@ -69,6 +67,7 @@ class R_MAPPOPolicy:
         :return rnn_states_actor: (torch.Tensor) updated actor network RNN states.
         :return rnn_states_critic: (torch.Tensor) updated critic network RNN states.
         """
+        # print("obs",obs.shape)
         actions, action_log_probs, rnn_states_actor = self.actor(obs,
                                                                  rnn_states_actor,
                                                                  masks,
@@ -76,6 +75,7 @@ class R_MAPPOPolicy:
                                                                  deterministic)
 
         values, rnn_states_critic = self.critic(cent_obs, rnn_states_critic, masks)
+        # print("action",actions.shape)
         return values, actions, action_log_probs, rnn_states_actor, rnn_states_critic
 
     def get_values(self, cent_obs, rnn_states_critic, masks):

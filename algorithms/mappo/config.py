@@ -198,8 +198,8 @@ def get_config():
     # network parameters
     parser.add_argument("--share_policy", action='store_true',
                         default=False, help='Whether agent share the same policy')
-    parser.add_argument("--use_centralized_V", action='store_true',
-                        default=False, help="Whether to use centralized V function")
+    parser.add_argument("--use_centralized_V", action='store_false',
+                        default=True, help="Whether to use centralized V function")
     parser.add_argument("--stacked_frames", type=int, default=1,
                         help="Dimension of hidden layers for actor/critic networks")
     parser.add_argument("--use_stacked_frames", action='store_true',
@@ -295,14 +295,14 @@ def get_config():
     # pretrained parameters
     parser.add_argument("--model_dir", type=str, default=None, help="by default None. set the path to pretrained model.")
     parser.add_argument("--algorithm_mode", type=str, default='ops', help="by default None. set the path to pretrained model.")
-    parser.add_argument("--pretrain_dur", type=int, default=50, help="pretrainsteps.")
-    parser.add_argument("--vae_lr", type=float, default=5e-5, help="lr for vae.")
-    parser.add_argument("--clusters", type=int, default=None, help="clusters.")
+    parser.add_argument("--pretrain_dur", type=int, default=40, help="pretrainsteps.")
+    parser.add_argument("--vae_lr", type=float, default=1e-5, help="lr for vae.")
+    parser.add_argument("--clusters", type=int, default=3, help="clusters.")
     parser.add_argument("--vae_epoch", type=int, default=10, help="epoch for vae")
     parser.add_argument("--vae_zfeatures", type=int, default=10, help="features for vae")
     parser.add_argument("--vae_kl", type=float, default=0.0001, help="kl for vae")
-    parser.add_argument("--vae_batchsize", type=int, default=512, help="kl for vae")
-    parser.add_argument("--mid_gap", type=int, default=900, help="kl for vae")
+    parser.add_argument("--vae_batchsize", type=int, default=512, help="batchsize for vae")
+    parser.add_argument("--mid_gap", type=int, default=560, help="mid gap for vae")
 
 
     return parser

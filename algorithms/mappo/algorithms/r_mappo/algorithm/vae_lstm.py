@@ -37,7 +37,7 @@ class LinearVAE(nn.Module):
         return sample
 
     def encode(self, x):
-        x, _, _ = self.lstm(x)  # LSTM returns hidden state and cell state
+        x, _ = self.lstm(x)  # LSTM returns hidden state and cell state
         # Only the hidden state is passed through the encoder
         # only select out
         x = self.encoder(x)  # Use the last layer's hidden state
@@ -48,7 +48,7 @@ class LinearVAE(nn.Module):
 
     def forward(self, x, xp):
         # encoding
-        x, _, _ = self.lstm(x)  # LSTM returns hidden state and cell state
+        x, _ = self.lstm(x)  # LSTM returns hidden state and cell state
         x = self.encoder(x)  # Use the last layer's hidden state
 
         mu = x[:, :self.features]
@@ -56,6 +56,6 @@ class LinearVAE(nn.Module):
         z = self.reparameterize(mu, log_var)
 
         dec_input = torch.cat([z, xp], axis=-1)
-        reconstructed, _, _ = self.decoder_lstm(dec_input)
+        reconstructed, _ = self.decoder_lstm(dec_input)
         reconstruction = self.decoder(reconstructed)
         return reconstruction, mu, log_var

@@ -221,9 +221,12 @@ class R_MAPPO():
         return train_info
 
     def prep_training(self):
+        # sets the module into training mode. 
+        # This is important for certain types of layers like Dropout and BatchNorm,
         self.policy.actor.train()
         self.policy.critic.train()
 
     def prep_rollout(self):
+        # eval mode
         self.policy.actor.eval()
         self.policy.critic.eval()

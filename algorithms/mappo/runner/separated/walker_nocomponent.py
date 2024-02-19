@@ -7,118 +7,15 @@ from itertools import chain
 from gymnasium.spaces.utils import flatdim
 
 from algorithms.mappo.utils.util import update_linear_schedule
-from algorithms.mappo.runner.separated.base_runner import Runner
-from algorithms.mappo.algorithms.r_mappo.algorithm.ops_utils import compute_clusters
+from algorithms.mappo.runner.separated.base_nocomponent import Runner
 import imageio
-from collections import Counter
+
 def _t2n(x):
     return x.detach().cpu().numpy()
 
-
-
-def normalize_indices(cluster_indices):
-    normalized_indices = []
-    for indices in cluster_indices:
-        # Track the unique labels encountered in order and their normalized mappings
-        unique_labels = {}
-        next_label = 0
-        normalized = []
-        
-        for index in indices:
-            if index not in unique_labels:
-                # Encounter a new label, assign it the next available normalized label
-                unique_labels[index] = next_label
-                next_label += 1
-            
-            # Map the original label to the normalized label
-            normalized_label = unique_labels[index]
-            normalized.append(normalized_label)
-        
-        normalized_indices.append(normalized)
-    
-    return normalized_indices
-
-def find_most_common_index(index_counter):
-    most_common = index_counter.most_common(2)  # Get the top 2 to check for a tie
-    if most_common:
-        # Check if there's more than one result and they have the same count
-        if len(most_common) > 1 and most_common[0][1] == most_common[1][1]:
-            print("Tie detected. Choosing one arbitrarily.")
-        # Extract the index from the list (choose the first one in case of a tie)
-        most_common_index = list(most_common[0][0])
-        return most_common_index
-    else:
-        return None
-
-
-def count_normalized_indices(normalized_indices):
-    # Convert the list of indices to a tuple so it can be used as a key in the counter
-    index_tuples = [tuple(index) for index in normalized_indices]
-    index_counter = Counter(index_tuples)
-    return index_counter
-
-
-# class PolicyBlender:
-#     def __init__(self, initial_policies):
-#         self.policies = initial_policies  # A list of initial policy networks
-#         self.alpha = 0.0  # Start with the old policy
-#         self.blend_threshold = 0.9  # Threshold to switch to the new policy
-#         self.increment = 0.1
-
-#     def blend_policies(self, target_policy_idx):
-#         # Ensure target_policy_idx is within the range of self.policies
-#         if target_policy_idx < len(self.policies):
-#             target_policy = self.policies[target_policy_idx]
-#             if self.alpha < self.blend_threshold:
-#                 for policy in self.policies:
-#                     if policy != target_policy:
-#                         for target_param, param in zip(target_policy.actor.parameters(), policy.actor.parameters()):
-#                             param.data.copy_((1 - self.alpha) * param.data + self.alpha * target_param.data)
-#                         for target_param, param in zip(target_policy.critic.parameters(), policy.critic.parameters()):
-#                             param.data.copy_((1 - self.alpha) * param.data + self.alpha * target_param.data)
-#         # else:
-#         #     # Once the threshold is reached, fully adopt the target policy
-#         #     # Replace the policy instance completely instead of just copying state_dict
-#         #     self.policies = [self.policies[target_policy_idx] if i != target_policy_idx else policy 
-#         #                      for i, policy in enumerate(self.policies)]
-
-#     def update_alpha(self):
-#         self.alpha = min(self.blend_threshold, self.alpha + self.increment)  # Cap alpha at the blend threshold
-class PolicyBlender:
-    def __init__(self, policies, cluster_indices):
-        self.policies = policies  # A list of all policy networks
-        self.cluster_indices = cluster_indices  # List of cluster indices for each policy
-        self.alpha = 0.0
-        self.blend_threshold = 0.9
-        self.increment = 0.05
-
-    def blend_policies(self):
-        if self.alpha < self.blend_threshold:
-            for cluster_idx in set(self.cluster_indices):
-                target_policy_idx = self.cluster_indices.index(cluster_idx)
-                target_policy = self.policies[target_policy_idx]
-                for agent_id, idx in enumerate(self.cluster_indices):
-                    if idx == cluster_idx and agent_id != target_policy_idx:
-                        policy = self.policies[agent_id]
-                        for target_param, param in zip(target_policy.actor.parameters(), policy.actor.parameters()):
-                            param.data.copy_((1 - self.alpha) * param.data + self.alpha * target_param.data)
-                        for target_param, param in zip(target_policy.critic.parameters(), policy.critic.parameters()):
-                            param.data.copy_((1 - self.alpha) * param.data + self.alpha * target_param.data)
-
-    def update_alpha(self):
-        self.alpha += self.increment
-        # self.alpha = min(self.blend_threshold, self.alpha + self.increment)
-        # print(self.alpha)
-
-
-
-
-
-
-
 class MPERunner(Runner):
-    def __init__(self, most_common_index,config):
-        super(MPERunner, self).__init__(most_common_index,config)
+    def __init__(self, config):
+        super(MPERunner, self).__init__(config)
 
     def dict_to_tensor(self, x, iterable=True):
         #obs_shape = self.envs.observation_space('agent_0').shape
@@ -141,8 +38,6 @@ class MPERunner(Runner):
         start = time.time()
         episodes = int(
             self.num_env_steps) // self.episode_length // self.n_rollout_threads
-        cluster_indices_list = []
-        most_common_index2 = None
 
         for episode in range(episodes):
             if self.use_linear_lr_decay:
@@ -155,28 +50,11 @@ class MPERunner(Runner):
                 # Sample actions
                 values, actions, action_log_probs, rnn_states, rnn_states_critic, actions_env = self.collect(
                     step)
-                # print(type(actions))
-                # if step == 0:
-                #     print(actions.shape)
-                # # print(torch.nn.functional.one_hot(torch.tensor(actions,dtype=torch.int64), num_classes=actions.shape[-1]))
-                # # Obser reward and next obs
-                #     print(actions_env)
-                one_hot_list = []
-                for i in range(self.all_args.num_agents):
-                    one_hot_agent = torch.nn.functional.one_hot(torch.tensor(i), self.all_args.num_agents)
-                    one_hot_list.append(one_hot_agent)
 
-                # Combine into a single tensor
-                combined_matrix = torch.stack(one_hot_list)
-
-                # Repeat the combined matrix to get a shape of (32, 3, 3)
-                repeated_matrix = combined_matrix.repeat(self.all_args.n_rollout_threads, 1, 1)
-                # if step ==0:
-                #     print(repeated_matrix.shape)
-                    
-
-                # print(len(one_hot_list))
+                # Obser reward and next obs
+                # print(actions_env)
                 obs, rewards, dones, infos = self.envs.step(actions_env)
+                # print("state",self.envs.state)
                 # print(self.envs.get_cycle_count)
                 # print("obs",type(obs))
                 # print("rewards",rewards)
@@ -197,73 +75,9 @@ class MPERunner(Runner):
 
 
                 # insert data into buffer
-                # if 150 < episode <= (150+self.pretrain_dur):
-                    # 160
-                # if step >=self.episode_length // 2:
-                self.easy_buffer.insert(action=np.clip(actions,-1,1), obs=obs, one_hot_list=repeated_matrix, reward=rewards,dones=dones)
-                # print()
-                    # self.easy_buffer.insert(action=actions,obs=obs,one_hot_list=repeated_matrix,reward=rewards)
                 self.insert(data)
 
             # compute return and update network
-            # print(self.easy_buffer.one_hot_list_buffer)
-            for iteration in range(5):
-
-                if (episode == (self.pretrain_dur+self.mid_gap + iteration * 10)):
-
-                    cluster_idx = compute_clusters(self.easy_buffer, 
-                                                self.all_args.num_agents,
-                                                self.vae_batch,
-                                                self.clusters, 
-                                                self.vae_lr, self.vae_epoch, self.vae_zfeatures, 
-                                                self.kl, self.device)
-                    # print(f"Iteration {iteration}, cluster_idx: {cluster_idx}")
-                    cluster_indices_list.append(cluster_idx.cpu().numpy())
-
-                    if len(cluster_indices_list) == 5:
-                        normalized_indices = normalize_indices(cluster_indices_list)
-                        index_counter = count_normalized_indices(normalized_indices)
-                        most_common_index2 = find_most_common_index(index_counter)
-                        
-                        
-                        print("normalized_indices", normalized_indices)
-                        print("most_common_index", most_common_index2)
-                        policy_blenders = PolicyBlender(self.policy, most_common_index2)
-
-                        
-            if most_common_index2 is not None:
-                
-                if policy_blenders.alpha < policy_blenders.blend_threshold:
-                    # print("blend here")
-                    policy_blenders.blend_policies()
-                    policy_blenders.update_alpha()
-                            
-                if policy_blenders.alpha >= (policy_blenders.blend_threshold-0.1):
-                    # print("blending done!")
-                    cluster_to_policy_index = {}
-                    for agent_id, cluster_idx in enumerate(most_common_index2):
-                        if cluster_idx not in cluster_to_policy_index:
-                            # The first time we see this cluster index, we map it to the current agent's policy index
-                            cluster_to_policy_index[cluster_idx] = agent_id
-                    for agent_id, cluster_idx in enumerate(most_common_index2):
-                        # Get the policy index of the first agent in this cluster
-                        policy_index = cluster_to_policy_index[cluster_idx]
-                        # Assign this policy to the current agent
-                        self.policy[agent_id] = self.policy[policy_index]
-                        cluster_indices_list = []
-                        most_common_index2 = None
-                
-                # return most_common_index
-                
-                
-                # Clear the list to start collecting new clustering results
-                
-                    
-                    print(self.policy)
-                    # print(f"Iteration {iteration}, most_common_index: {most_common_index}
-                    # sys.exit(0)
-            # for agent_id in range(self.num_agents):
-            #     self.policy[agent_id].laac_sample= cluster_idx.repeat(self.n_rollout_threads, 1)
             self.compute()
             train_infos = self.train()
             # self.render()
@@ -315,11 +129,13 @@ class MPERunner(Runner):
         obs = self.envs.reset()
         # print(obs.shape)
         obs = self.dict_to_tensor(obs)
+        # print("obs",obs)
+        # print("state",self.envs.state())
         # print(obs.shape)
 
         #last_actions = np.zeros(
           #(self.n_rollout_threads, self.num_agents * (flatdim(self.envs.action_space('agent_0')) - 1)))
-
+        # if not self.use_centralized_V:
         share_obs = []
         for o in obs:
             share_obs.append(list(chain(*o)))
@@ -329,9 +145,16 @@ class MPERunner(Runner):
         for agent_id in range(self.num_agents):
             if not self.use_centralized_V:
                 share_obs = np.array(list(obs[:, agent_id]))
+            elif self.use_centralized_V:
+                share_obs = self.envs.state()
+                # print(np.array(list(obs[:, agent_id])).shape)
+                share_obs = np.concatenate((share_obs, (np.array(list(obs[:, agent_id]))[:, -6:])), axis=-1)
+                # print("share_obs",share_obs.shape)
             self.buffer[agent_id].share_obs[0] = share_obs.copy()
             self.buffer[agent_id].obs[0] = np.array(
                 list(obs[:, agent_id])).copy()
+        # else self.use_centralized_V:
+
 
     @torch.no_grad()
     def collect(self, step):
@@ -414,6 +237,10 @@ class MPERunner(Runner):
         for agent_id in range(self.num_agents):
             if not self.use_centralized_V:
                 share_obs = np.array(list(obs[:, agent_id]))
+            elif self.use_centralized_V:
+                share_obs = self.envs.state()
+                # print(np.array(list(obs[:, agent_id])).shape)
+                share_obs = np.concatenate((share_obs, (np.array(list(obs[:, agent_id]))[:, -6:])), axis=-1)
 
             self.buffer[agent_id].insert(share_obs,
                                          np.array(list(obs[:, agent_id])),

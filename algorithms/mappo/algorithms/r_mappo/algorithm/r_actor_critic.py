@@ -1,5 +1,8 @@
-import torch
+import math
+import numpy as np
+import os
 import torch.nn as nn
+import torch
 from gymnasium.spaces.utils import flatdim
 from algorithms.mappo.algorithms.utils.util import init, check
 from algorithms.mappo.algorithms.utils.cnn import CNNBase
@@ -83,7 +86,7 @@ class R_Actor(nn.Module):
         com_actions, com_action_log_probs = self.act_com(communication_features, available_actions, deterministic)
         
         actions = torch.cat((ctrl_actions, com_actions), dim=-1)
-        # print(actions)
+        # print(actions.shape)
         action_log_probs = torch.cat((ctrl_action_log_probs, com_action_log_probs), dim=-1)
 
         return actions, action_log_probs, rnn_states
