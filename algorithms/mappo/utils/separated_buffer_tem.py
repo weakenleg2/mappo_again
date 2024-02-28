@@ -2,7 +2,7 @@ import torch
 import numpy as np
 from collections import defaultdict
 
-from algorithms.mappo.utils.util import check, get_shape_from_obs_space, get_shape_from_act_space,flatten
+from algorithms.mappo.utils.util import check, get_shape_from_obs_space, get_shape_from_act_space
 
 def _flatten(T, N, x):
     return x.reshape(T * N, *x.shape[2:])
@@ -15,6 +15,7 @@ def _cast(x):
 
 class SeparatedReplayBuffer(object):
     def __init__(self, args, obs_space, share_obs_space, act_space, agent_id):
+        self.args = args
         self.episode_length = args.episode_length
         self.n_rollout_threads = args.n_rollout_threads
         self.rnn_hidden_size = args.actor_hidden_size
@@ -38,23 +39,20 @@ class SeparatedReplayBuffer(object):
         print(obs_shape)
         print(share_obs_shape)
 
-        if args.env_name == "GoBigger":
-            self.obs = [[] for _ in range(self.episode_length + 1)]
-        else:
-            if type(obs_shape[-1]) == list:
-                obs_shape = obs_shape[:1]
-            self.obs = np.zeros((self.episode_length + 1, self.n_rollout_threads, *obs_shape), dtype=np.float32)
+        
+        if type(obs_shape[-1]) == list:
+            obs_shape = obs_shape[:1]
+        self.obs = np.zeros((self.episode_length + 1, self.n_rollout_threads, *obs_shape), dtype=np.float32)
 
-        if args.env_name == "GoBigger":
-            self.share_obs = [[] for _ in range(self.episode_length + 1)]
-        else:
-            if type(share_obs_shape[-1]) == list:
-                share_obs_shape = share_obs_shape[:1]
-            self.share_obs = np.zeros((self.episode_length + 1, self.n_rollout_threads, *share_obs_shape), dtype=np.float32)
+        
+        if type(share_obs_shape[-1]) == list:
+            share_obs_shape = share_obs_shape[:1]
+        self.share_obs = np.zeros((self.episode_length + 1, self.n_rollout_threads, *share_obs_shape), dtype=np.float32)
+        self.obs = np.zeros((self.episode_length + 1, self.n_rollout_threads, *obs_shape), dtype=np.float32)
 
         self.rnn_states = np.zeros((self.episode_length + 1, self.n_rollout_threads, self.recurrent_N, self.rnn_hidden_size * 2), dtype=np.float32)
         self.rnn_states_critic = np.zeros((self.episode_length + 1, self.n_rollout_threads, self.recurrent_N, self.rnn_critic_hidden_size), dtype=np.float32)
-        # modify
+        # modify 千万小心
         self.rnn_states_joint = np.zeros_like(self.rnn_states_critic)
 
         self.value_preds = np.zeros((self.episode_length + 1, self.n_rollout_threads, 1), dtype=np.float32)
@@ -81,11 +79,9 @@ class SeparatedReplayBuffer(object):
         else:
             self.available_actions = None
 
-        act_shape = get_shape_from_act_space(act_space)
-
-        self.actions = np.zeros((self.episode_length, self.n_rollout_threads, act_shape), dtype=np.float32)
-        
-        self.action_log_probs = np.zeros((self.episode_length, self.n_rollout_threads, act_shape), dtype=np.float32)
+        self.actions = np.zeros((self.episode_length, self.n_rollout_threads, self.act_shape))
+        self.one_hot_actions = np.zeros((self.episode_length, self.n_rollout_threads, args.num_agents, self.action_dim), dtype=np.float32)
+        self.action_log_probs = np.zeros((self.episode_length, self.n_rollout_threads, self.act_shape), dtype=np.float32)
         self.rewards = np.zeros((self.episode_length, self.n_rollout_threads, 1), dtype=np.float32)
 
         self.joint_actions = np.zeros((self.episode_length, self.n_rollout_threads, self.act_shape), dtype=np.float32)
@@ -251,12 +247,9 @@ class SeparatedReplayBuffer(object):
             sampler = [rand[i*mini_batch_size:(i+1)*mini_batch_size] for i in range(num_mini_batch)]
         self.advg = advantages
         one_hot_actions = self.one_hot_actions.reshape(-1, *self.one_hot_actions.shape[2:])
-        if self.args.env_name == "GoBigger":
-            share_obs = flatten(self.share_obs[:-1])
-            obs = flatten(self.obs[:-1])
-        else:
-            share_obs = self.share_obs[:-1].reshape(-1, *self.share_obs.shape[2:])
-            obs = self.obs[:-1].reshape(-1, *self.obs.shape[2:])
+        
+        share_obs = self.share_obs[:-1].reshape(-1, *self.share_obs.shape[2:])
+        obs = self.obs[:-1].reshape(-1, *self.obs.shape[2:])
         rnn_states = self.rnn_states[:-1].reshape(-1, *self.rnn_states.shape[2:])
         rnn_states_critic = self.rnn_states_critic[:-1].reshape(-1, *self.rnn_states_critic.shape[2:])
         # Guiyi

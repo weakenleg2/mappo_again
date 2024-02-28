@@ -88,11 +88,14 @@ class Runner(object):
         for agent_id in range(self.num_agents):
             # print()
             share_observation_space = spaces.Box(
-            low=np.float32(-np.inf),
-            high=np.float32(np.inf),
-            shape=(81,),
+            low=-np.float32(np.inf),
+            high=+np.float32(np.inf),
+            shape=(
+                self.envs.share_observation_space.shape[0]+self.envs.observation_space('agent_0').shape[0],
+            ),  # 24 is the observation space of each walker, 3 is the package observation space
             dtype=np.float32,
         ) if self.use_centralized_V else self.envs.observation_space('agent_0')
+            
             # print("self.envs.share_observation_space",self.envs.share_observation_space('agent_0'))
             # policy network
             po = Policy(self.all_args,
@@ -130,13 +133,16 @@ class Runner(object):
         for agent_id in range(self.num_agents):
             # algorithm
             tr = TrainAlgo(self.all_args, self.policy[agent_id], device = self.device)
-            # buffer
+            # print()
             share_observation_space = spaces.Box(
-            low=np.float32(-np.inf),
-            high=np.float32(np.inf),
-            shape=(81,),
+            low=-np.float32(np.inf),
+            high=+np.float32(np.inf),
+            shape=(
+                self.envs.share_observation_space.shape[0]+self.envs.observation_space('agent_0').shape[0],
+            ),  # 24 is the observation space of each walker, 3 is the package observation space
             dtype=np.float32,
         ) if self.use_centralized_V else self.envs.observation_space('agent_0')
+            # buffer
             bu = SeparatedReplayBuffer(self.all_args,
                                        self.envs.observation_space('agent_0'),
                                        share_observation_space,

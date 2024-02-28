@@ -18,7 +18,7 @@ import math
 from algorithms.mappo.utils.separated_buffer_tem import SeparatedReplayBuffer
 from algorithms.mappo.utils.util_tem import huber_loss, mse_loss, update_linear_schedule, is_acyclic, pruning, get_gard_norm, flatten, generate_mask_from_order
 from algorithms.mappo.algorithms.utils.util import check
-from algorithms.mappo.utils.valuenorm import ValueNorm
+from algorithms.mappo.utils.valuenorm_bta import ValueNorm
 from algorithms.mappo.algorithms.utils.distributions_tem import FixedCategorical, FixedNormal, GaussianTorch
 
 import psutil
@@ -45,9 +45,12 @@ class Runner(object):
         self.use_obs_instead_of_state = self.all_args.use_obs_instead_of_state
         self.num_env_steps = self.all_args.num_env_steps
         self.episode_length = self.all_args.episode_length
+        self.n_trajectories = self.all_args.n_trajectories
         self.n_rollout_threads = self.all_args.n_rollout_threads
         self.n_eval_rollout_threads = self.all_args.n_eval_rollout_threads
         self.use_linear_lr_decay = self.all_args.use_linear_lr_decay
+        self.actor_hidden_size = self.all_args.actor_hidden_size
+        self.critic_hidden_size = self.all_args.critic_hidden_size
         self.hidden_size = self.all_args.hidden_size
         self.use_wandb = self.all_args.use_wandb
         self.use_render = self.all_args.use_render
@@ -108,20 +111,25 @@ class Runner(object):
         self.mix_actions = False
         self.discrete = False
         self.continuous = False
-        if self.envs.action_space[0].__class__.__name__ == "Discrete":
+        # print("self.envs.action_space[0]",self.envs.action_space('agent_0')[0].shape[0])
+        # print("self.envs.action_space[1]",self.envs.action_space('agent_0')[1].n)
+
+        if self.envs.action_space('agent_0').__class__.__name__ == "Discrete":
             self.discrete = True
-            self.action_dim = self.envs.action_space[0].n
+            self.action_dim = self.envs.action_space('agent_0').n
             self.action_shape = 1
-        elif self.envs.action_space[0].__class__.__name__ == "Box":
+        elif self.envs.action_space('agent_0').__class__.__name__ == "Box":
             self.continuous = True
-            self.action_dim = self.envs.action_space[0].shape[0]
-            self.action_shape = self.envs.action_space[0].shape[0]
+            self.action_dim = self.envs.action_space('agent_0').shape[0]
+            self.action_shape = self.envs.action_space('agent_0').shape[0]
         else:
             self.mix_actions = True
-            self.continous_dim = self.envs.action_space[0][0].shape[0]
-            self.discrete_dim = self.envs.action_space[0][1].n
+            self.continous_dim = self.envs.action_space('agent_0')[0].shape[0]
+            self.discrete_dim = self.envs.action_space('agent_0')[1].n
             self.action_dim = self.continous_dim + self.discrete_dim
+            # 注意
             self.action_shape = self.continous_dim + 1
+        # 请注意上述部分
         # self.action_dim = self.envs.action_space[0].n if self.envs.action_space[0].__class__.__name__ == "Discrete" else self.envs.action_space[0].shape[0]
         
         # interval
@@ -150,24 +158,25 @@ class Runner(object):
             self.save_dir = str(self.run_dir / 'models')
             if not os.path.exists(self.save_dir):
                 os.makedirs(self.save_dir)
-
-        from bta.algorithms.bta.t_policy import T_POLICY as TrainAlgo
-        from bta.algorithms.bta.algorithm.temporalPolicy import TemporalPolicy as Policy
+        from algorithms.mappo.algorithms.r_mappo.bta.t_policy import T_POLICY as TrainAlgo
+        from algorithms.mappo.algorithms.r_mappo.bta.temporalPolicy import TemporalPolicy as Policy
+        # from bta.algorithms.bta.t_policy import T_POLICY as TrainAlgo
+        # from bta.algorithms.bta.algorithm.temporalPolicy import TemporalPolicy as Policy
 
         self.policy = []
         for agent_id in range(self.num_agents):
             #print(len(self.envs.share_observation_space))
             #print(len(self.envs.observation_space))
-            share_observation_space = self.envs.share_observation_space[agent_id] if self.use_centralized_V else self.envs.observation_space[agent_id]
+            share_observation_space = self.envs.share_observation_space if self.use_centralized_V else self.envs.observation_space('agent_0')
             # policy network
             po = Policy(self.all_args,
-                        self.envs.observation_space[agent_id],
+                        self.envs.observation_space('agent_0'),
                         share_observation_space,
-                        self.envs.action_space[agent_id],
+                        self.envs.action_space('agent_0'),
                         agent_id,
                         device = self.device)
             self.policy.append(po)
-        self.obs_emb_size = self.policy[0].critic.abs_size
+        self.obs_emb_size = self.policy[0].critic.abs_size*2
         
         if self.model_dir is not None:
             self.restore()
@@ -176,21 +185,21 @@ class Runner(object):
         self.buffer = []
         for agent_id in range(self.num_agents):
             # algorithm
-            tr = TrainAlgo(self.all_args, self.policy[agent_id], agent_id, self.envs.action_space[agent_id], device = self.device)
+            tr = TrainAlgo(self.all_args, self.policy[agent_id], agent_id, self.envs.action_space('agent_0'), device = self.device)
             # buffer
-            share_observation_space = self.envs.share_observation_space[agent_id] if self.use_centralized_V else self.envs.observation_space[agent_id]
+            share_observation_space = self.envs.share_observation_space if self.use_centralized_V else self.envs.observation_space('agent_0')
             #print("Base runner", agent_id, share_observation_space)
             bu = SeparatedReplayBuffer(self.all_args,
-                                    self.envs.observation_space[agent_id],
+                                    self.envs.observation_space('agent_0'),
                                     share_observation_space,
-                                    self.envs.action_space[agent_id],
+                                    self.envs.action_space('agent_0'),
                                     agent_id)
             self.buffer.append(bu)
             self.trainer.append(tr)
         
         if self.use_action_attention:
-            from bta.algorithms.utils.action_attention import Action_Attention
-            self.action_attention = Action_Attention(self.all_args, self.envs.action_space[0], self.envs.share_observation_space[0], device = self.device)
+            from algorithms.mappo.algorithms.bta_utils.action_attention import Action_Attention
+            self.action_attention = Action_Attention(self.all_args, self.envs.action_space('agent_0'), self.envs.observation_space('agent_0'), device = self.device)
             self.action_attention_optimizer = torch.optim.Adam(self.action_attention.parameters(), lr=self.all_args.attention_lr, eps=self.all_args.opti_eps, weight_decay=self.all_args.weight_decay)
 
             if self.decay_id == 2:
@@ -326,34 +335,16 @@ class Runner(object):
 
             train_info = self.trainer[agent_id].train(self.buffer[agent_id], idx, ordered_vertices, tau=self.temperature)
 
-            if self.env_name == "GoBigger":
-                new_actions_logprobs = []
-                batch_size = self.n_rollout_threads * self.episode_length
-                rand = list(range(batch_size))
-                mini_batch_size = batch_size // self.all_args.num_mini_batch
-                sampler = [rand[i*mini_batch_size:(i+1)*mini_batch_size] for i in range(self.all_args.num_mini_batch)]
-                for indices in sampler:
-                    _, new_actions_logprob, _, _, _, _ =self.trainer[agent_id].policy.actor.evaluate_actions(obs_batch[indices],
-                                                                self.buffer[agent_id].rnn_states[0:1].reshape(-1, *self.buffer[agent_id].rnn_states.shape[2:]),
-                                                                self.buffer[agent_id].actions.reshape(-1, *self.buffer[agent_id].actions.shape[2:])[indices],
-                                                                self.buffer[agent_id].masks[:-1].reshape(-1, *self.buffer[agent_id].masks.shape[2:])[indices],
-                                                                one_hot_actions[indices],
-                                                                execution_masks_batch[indices],
-                                                                available_actions[indices],
-                                                                self.buffer[agent_id].active_masks[:-1].reshape(-1, *self.buffer[agent_id].active_masks.shape[2:])[indices],
-                                                                tau=self.temperature)
-                    new_actions_logprobs.append(new_actions_logprob)
-                new_actions_logprob = torch.cat(new_actions_logprobs, dim=0)
-            else:
-                _, new_actions_logprob, _, _, _, _ =self.trainer[agent_id].policy.actor.evaluate_actions(obs_batch,
-                                                            self.buffer[agent_id].rnn_states[0:1].reshape(-1, *self.buffer[agent_id].rnn_states.shape[2:]),
-                                                            self.buffer[agent_id].actions.reshape(-1, *self.buffer[agent_id].actions.shape[2:]),
-                                                            self.buffer[agent_id].masks[:-1].reshape(-1, *self.buffer[agent_id].masks.shape[2:]),
-                                                            one_hot_actions,
-                                                            execution_masks_batch,
-                                                            available_actions,
-                                                            self.buffer[agent_id].active_masks[:-1].reshape(-1, *self.buffer[agent_id].active_masks.shape[2:]),
-                                                            tau=self.temperature)
+            
+            _, new_actions_logprob, _, _, _, _ =self.trainer[agent_id].policy.actor.evaluate_actions(obs_batch,
+                                                        self.buffer[agent_id].rnn_states[0:1].reshape(-1, *self.buffer[agent_id].rnn_states.shape[2:]),
+                                                        self.buffer[agent_id].actions.reshape(-1, *self.buffer[agent_id].actions.shape[2:]),
+                                                        self.buffer[agent_id].masks[:-1].reshape(-1, *self.buffer[agent_id].masks.shape[2:]),
+                                                        one_hot_actions,
+                                                        execution_masks_batch,
+                                                        available_actions,
+                                                        self.buffer[agent_id].active_masks[:-1].reshape(-1, *self.buffer[agent_id].active_masks.shape[2:]),
+                                                        tau=self.temperature)
 
             advg_batch = check(self.buffer[agent_id].advg.reshape(-1, *self.buffer[agent_id].advg.shape[2:])).to(**self.tpdv)
             action_loss = torch.sum(torch.prod(torch.exp(new_actions_logprob-old_actions_logprob.detach()),-1,keepdim=True)*advg_batch, dim=-1, keepdim=True)

@@ -53,6 +53,7 @@ class MPERunner(Runner):
 
                 # Obser reward and next obs
                 # print(actions_env)
+
                 obs, rewards, dones, infos = self.envs.step(actions_env)
                 # print("state",self.envs.state)
                 # print(self.envs.get_cycle_count)
@@ -147,8 +148,17 @@ class MPERunner(Runner):
                 share_obs = np.array(list(obs[:, agent_id]))
             elif self.use_centralized_V:
                 share_obs = self.envs.state()
-                # print(np.array(list(obs[:, agent_id])).shape)
-                share_obs = np.concatenate((share_obs, (np.array(list(obs[:, agent_id]))[:, -6:])), axis=-1)
+                # Slice up to the end of the current agent's observation
+                # share_obs_1 = share_obs[:, :(agent_id+1)*23]
+                # # print("obs1",share_obs_1.shape)
+                # # Slice from the start of the next agent's observation
+                # share_obs_2 = share_obs[:, (agent_id+1)*23:]
+                # print("obs2",share_obs_2.shape)
+                agent_obs = np.array(list(obs[:, agent_id]))
+                # print("last6",agent_obs_last_6.shape)
+                # Concatenate: first part + last 6 elements + second part
+                share_obs = np.concatenate((share_obs, agent_obs), axis=-1)
+
                 # print("share_obs",share_obs.shape)
             self.buffer[agent_id].share_obs[0] = share_obs.copy()
             self.buffer[agent_id].obs[0] = np.array(
@@ -196,11 +206,13 @@ class MPERunner(Runner):
             
             actions.append(action)
             temp_actions_env.append(action_env)
+            # print(action.shape,action_log_prob.shape)
             action_log_probs.append(_t2n(action_log_prob))
             rnn_states.append(_t2n(rnn_state))
             rnn_states_critic.append(_t2n(rnn_state_critic))
 
         # [envs, agents, dim]
+        # print(temp_actions_env)
         actions_env = [{} for _ in range(self.n_rollout_threads)]
         for i in range(self.num_agents):
             thread_actions = temp_actions_env[i]
@@ -239,8 +251,16 @@ class MPERunner(Runner):
                 share_obs = np.array(list(obs[:, agent_id]))
             elif self.use_centralized_V:
                 share_obs = self.envs.state()
-                # print(np.array(list(obs[:, agent_id])).shape)
-                share_obs = np.concatenate((share_obs, (np.array(list(obs[:, agent_id]))[:, -6:])), axis=-1)
+
+                # share_obs_1 = share_obs[:, :(agent_id+1)*23]
+                # # Slice from the start of the next agent's observation
+                # share_obs_2 = share_obs[:, (agent_id+1)*23:]
+                
+                # Extract the last 6 elements from the current agent's observation and reshape if necessary
+                agent_obs = np.array(list(obs[:, agent_id]))
+                
+                # Concatenate: first part + last 6 elements + second part
+                share_obs = np.concatenate((share_obs, agent_obs), axis=-1)
 
             self.buffer[agent_id].insert(share_obs,
                                          np.array(list(obs[:, agent_id])),

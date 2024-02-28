@@ -1,7 +1,7 @@
 import numpy as np
 import torch
-from bta.algorithms.bta.algorithm.r_actor_critic import R_Actor, R_Critic
-from bta.utils.util import update_linear_schedule
+from algorithms.mappo.algorithms.r_mappo.bta.r_actor_critic import R_Actor, R_Critic
+from algorithms.mappo.utils.util_tem import update_linear_schedule
 
 
 class TemporalPolicy:

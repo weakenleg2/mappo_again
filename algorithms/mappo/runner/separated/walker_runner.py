@@ -58,32 +58,7 @@ def count_normalized_indices(normalized_indices):
     return index_counter
 
 
-# class PolicyBlender:
-#     def __init__(self, initial_policies):
-#         self.policies = initial_policies  # A list of initial policy networks
-#         self.alpha = 0.0  # Start with the old policy
-#         self.blend_threshold = 0.9  # Threshold to switch to the new policy
-#         self.increment = 0.1
 
-#     def blend_policies(self, target_policy_idx):
-#         # Ensure target_policy_idx is within the range of self.policies
-#         if target_policy_idx < len(self.policies):
-#             target_policy = self.policies[target_policy_idx]
-#             if self.alpha < self.blend_threshold:
-#                 for policy in self.policies:
-#                     if policy != target_policy:
-#                         for target_param, param in zip(target_policy.actor.parameters(), policy.actor.parameters()):
-#                             param.data.copy_((1 - self.alpha) * param.data + self.alpha * target_param.data)
-#                         for target_param, param in zip(target_policy.critic.parameters(), policy.critic.parameters()):
-#                             param.data.copy_((1 - self.alpha) * param.data + self.alpha * target_param.data)
-#         # else:
-#         #     # Once the threshold is reached, fully adopt the target policy
-#         #     # Replace the policy instance completely instead of just copying state_dict
-#         #     self.policies = [self.policies[target_policy_idx] if i != target_policy_idx else policy 
-#         #                      for i, policy in enumerate(self.policies)]
-
-#     def update_alpha(self):
-#         self.alpha = min(self.blend_threshold, self.alpha + self.increment)  # Cap alpha at the blend threshold
 class PolicyBlender:
     def __init__(self, policies, cluster_indices):
         self.policies = policies  # A list of all policy networks
@@ -155,12 +130,7 @@ class MPERunner(Runner):
                 # Sample actions
                 values, actions, action_log_probs, rnn_states, rnn_states_critic, actions_env = self.collect(
                     step)
-                # print(type(actions))
-                # if step == 0:
-                #     print(actions.shape)
-                # # print(torch.nn.functional.one_hot(torch.tensor(actions,dtype=torch.int64), num_classes=actions.shape[-1]))
-                # # Obser reward and next obs
-                #     print(actions_env)
+                
                 one_hot_list = []
                 for i in range(self.all_args.num_agents):
                     one_hot_agent = torch.nn.functional.one_hot(torch.tensor(i), self.all_args.num_agents)
@@ -177,12 +147,7 @@ class MPERunner(Runner):
 
                 # print(len(one_hot_list))
                 obs, rewards, dones, infos = self.envs.step(actions_env)
-                # print(self.envs.get_cycle_count)
-                # print("obs",type(obs))
-                # print("rewards",rewards)
-                # print("dones",dones)
-                # print("infos",infos)
-
+                
                 obs = self.dict_to_tensor(obs)
                 # print(obs.shape)
                 rewards = self.dict_to_tensor(rewards, False)
@@ -196,17 +161,13 @@ class MPERunner(Runner):
                         tot_frames += agent_info['frames']
 
 
-                # insert data into buffer
-                # if 150 < episode <= (150+self.pretrain_dur):
-                    # 160
-                # if step >=self.episode_length // 2:
+                
                 self.easy_buffer.insert(action=np.clip(actions,-1,1), obs=obs, one_hot_list=repeated_matrix, reward=rewards,dones=dones)
                 # print()
                     # self.easy_buffer.insert(action=actions,obs=obs,one_hot_list=repeated_matrix,reward=rewards)
                 self.insert(data)
 
-            # compute return and update network
-            # print(self.easy_buffer.one_hot_list_buffer)
+            
             for iteration in range(5):
 
                 if (episode == (self.pretrain_dur+self.mid_gap + iteration * 10)):
@@ -260,10 +221,7 @@ class MPERunner(Runner):
                 
                     
                     print(self.policy)
-                    # print(f"Iteration {iteration}, most_common_index: {most_common_index}
-                    # sys.exit(0)
-            # for agent_id in range(self.num_agents):
-            #     self.policy[agent_id].laac_sample= cluster_idx.repeat(self.n_rollout_threads, 1)
+                    
             self.compute()
             train_infos = self.train()
             # self.render()
@@ -291,18 +249,10 @@ class MPERunner(Runner):
 
                 if self.env_name == "MPE":
                     for agent_id in range(self.num_agents):
-                        #for info in infos:
-                            #for count, info in enumerate(infos):
-                                #if 'individual_reward' in infos[count][agent_id].keys():
-                                    #idv_rews.append(infos[count][agent_id].get(
-                                        #'individual_reward', 0))
-                        #train_infos[agent_id].update(
-                            #{'individual_rewards': np.mean(idv_rews)})
                         train_infos[agent_id].update({"average_episode_rewards": np.mean(
                             self.buffer[agent_id].rewards) * self.episode_length})
                 self.log_train(train_infos, total_num_steps)
                 print('Average_episode_rewards: ', np.mean(self.buffer[0].rewards) * self.episode_length)
-                # print((tot_frames - tot_comms)/tot_frames)
                 wandb.log({"com_savings":(tot_frames - tot_comms)/tot_frames},total_num_steps)
 
             # eval
@@ -373,7 +323,9 @@ class MPERunner(Runner):
             
             actions.append(action)
             temp_actions_env.append(action_env)
+            # print("action_log_prob",action_log_prob)
             action_log_probs.append(_t2n(action_log_prob))
+            
             rnn_states.append(_t2n(rnn_state))
             rnn_states_critic.append(_t2n(rnn_state_critic))
 

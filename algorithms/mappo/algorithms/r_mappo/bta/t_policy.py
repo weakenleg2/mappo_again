@@ -9,10 +9,10 @@ import torch.nn as nn
 import torch.nn.functional as F
 import torch.optim as optim
 
-from bta.utils.util import get_gard_norm, huber_loss, mse_loss, cal_acyclic_loss, generate_mask_from_order
-from bta.utils.valuenorm import ValueNorm
-from bta.algorithms.utils.util import check
-from .algorithm.temporalPolicy import TemporalPolicy
+from algorithms.mappo.utils.util_tem import get_gard_norm, huber_loss, mse_loss, cal_acyclic_loss, generate_mask_from_order
+from algorithms.mappo.utils.valuenorm_bta import ValueNorm
+from algorithms.mappo.utils.util_tem import check
+from .temporalPolicy import TemporalPolicy
 # give up graph training
 
 class T_POLICY():
@@ -60,19 +60,6 @@ class T_POLICY():
             self.discrete = True
         elif action_space.__class__.__name__ == "Box":
             self.continuous = True
-        # if self.automatic_entropy_tuning:
-        # self.log_entropy_coef = torch.tensor(np.log(0.1), requires_grad=True, device=self.device)
-        # if action_space.__class__.__name__ == "Discrete":
-        #     if self.automatic_target_entropy_tuning:
-        #         self.log_entropy_coef = torch.tensor(np.log(np.e), requires_grad=True, device=self.device)
-        #         self.target_entropy = (torch.log(torch.tensor(action_space.n))).to(self.device)
-        #     else:
-        #         self.target_entropy = (torch.log(torch.tensor(action_space.n))*0.1).to(self.device)
-        # elif action_space.__class__.__name__ == "Box":
-        #     self.target_entropy = -torch.prod(torch.tensor(action_space.shape[0]).to(self.device)).item()
-        # self.entropy_coef = self.log_entropy_coef.exp()
-        # self.entropy_coef_optim = torch.optim.Adam([self.log_entropy_coef], lr=self.entropy_lr, eps=self.opti_eps, weight_decay=self.weight_decay)
-        # else:
         self.entropy_coef = args.entropy_coef
         self.shaped_info_coef = getattr(args, "shaped_info_coef", 0.5)
         self.max_grad_norm = args.max_grad_norm       
@@ -143,71 +130,71 @@ class T_POLICY():
 
         return value_loss
 
-    def graph_update(self, sample):
-        # with torch.autograd.set_detect_anomaly(True):
-        share_obs_batch, obs_batch, rnn_states_batch, rnn_states_critic_batch, actions_batch, one_hot_actions_batch, \
-        value_preds_batch, return_batch, masks_batch, active_masks_batch, old_action_log_probs_batch, \
-        adv_targ, available_actions_batch, factor_batch, action_grad,_,_ = sample
+    # def graph_update(self, sample):
+    #     # with torch.autograd.set_detect_anomaly(True):
+    #     share_obs_batch, obs_batch, rnn_states_batch, rnn_states_critic_batch, actions_batch, one_hot_actions_batch, \
+    #     value_preds_batch, return_batch, masks_batch, active_masks_batch, old_action_log_probs_batch, \
+    #     adv_targ, available_actions_batch, factor_batch, action_grad,_,_ = sample
 
-        old_action_log_probs_batch = check(old_action_log_probs_batch).to(**self.tpdv)
-        adv_targ = check(adv_targ).to(**self.tpdv)
-        value_preds_batch = check(value_preds_batch).to(**self.tpdv)
-        return_batch = check(return_batch).to(**self.tpdv)
-        active_masks_batch = check(active_masks_batch).to(**self.tpdv)
+    #     old_action_log_probs_batch = check(old_action_log_probs_batch).to(**self.tpdv)
+    #     adv_targ = check(adv_targ).to(**self.tpdv)
+    #     value_preds_batch = check(value_preds_batch).to(**self.tpdv)
+    #     return_batch = check(return_batch).to(**self.tpdv)
+    #     active_masks_batch = check(active_masks_batch).to(**self.tpdv)
 
-        #test
-        # execution_masks_batch = torch.stack([torch.ones(actions_batch.shape[0])] * self.agent_id +
-        #                                 [torch.zeros(actions_batch.shape[0])] *
-        #                                 (self.num_agents - self.agent_id), -1).to(**self.tpdv)
-        if self.skip_connect:
-            execution_masks_batch = torch.stack([torch.ones(actions_batch.shape[0])] * self.agent_id +
-                                            [torch.zeros(actions_batch.shape[0])] *
-                                            (self.num_agents - self.agent_id), -1).to(**self.tpdv)
-        else:
-            if self.agent_id != 0:
-                execution_masks_batch = torch.stack([torch.zeros(actions_batch.shape[0])] * (self.agent_id - 1) +
-                                                [torch.ones(actions_batch.shape[0])] * 1 +
-                                                [torch.zeros(actions_batch.shape[0])] *
-                                                (self.num_agents - self.agent_id), -1).to(**self.tpdv)
-            else:
-                execution_masks_batch = torch.stack([torch.zeros(actions_batch.shape[0])] * self.num_agents, -1).to(**self.tpdv)
+    #     #test
+    #     # execution_masks_batch = torch.stack([torch.ones(actions_batch.shape[0])] * self.agent_id +
+    #     #                                 [torch.zeros(actions_batch.shape[0])] *
+    #     #                                 (self.num_agents - self.agent_id), -1).to(**self.tpdv)
+    #     if self.skip_connect:
+    #         execution_masks_batch = torch.stack([torch.ones(actions_batch.shape[0])] * self.agent_id +
+    #                                         [torch.zeros(actions_batch.shape[0])] *
+    #                                         (self.num_agents - self.agent_id), -1).to(**self.tpdv)
+    #     else:
+    #         if self.agent_id != 0:
+    #             execution_masks_batch = torch.stack([torch.zeros(actions_batch.shape[0])] * (self.agent_id - 1) +
+    #                                             [torch.ones(actions_batch.shape[0])] * 1 +
+    #                                             [torch.zeros(actions_batch.shape[0])] *
+    #                                             (self.num_agents - self.agent_id), -1).to(**self.tpdv)
+    #         else:
+    #             execution_masks_batch = torch.stack([torch.zeros(actions_batch.shape[0])] * self.num_agents, -1).to(**self.tpdv)
 
         
-        # Reshape to do in a single forward pass for all steps
-        values, action_log_probs, dist_entropy = self.policy.evaluate_actions(share_obs_batch,
-                                                                            obs_batch, 
-                                                                            rnn_states_batch, 
-                                                                            rnn_states_critic_batch, 
-                                                                            actions_batch, 
-                                                                            masks_batch, 
-                                                                            one_hot_actions_batch,
-                                                                            execution_masks_batch,
-                                                                            available_actions_batch,
-                                                                            active_masks_batch,
-                                                                            )
-        # actor update
-        imp_weights = action_log_probs
+    #     # Reshape to do in a single forward pass for all steps
+    #     values, action_log_probs, dist_entropy = self.policy.evaluate_actions(share_obs_batch,
+    #                                                                         obs_batch, 
+    #                                                                         rnn_states_batch, 
+    #                                                                         rnn_states_critic_batch, 
+    #                                                                         actions_batch, 
+    #                                                                         masks_batch, 
+    #                                                                         one_hot_actions_batch,
+    #                                                                         execution_masks_batch,
+    #                                                                         available_actions_batch,
+    #                                                                         active_masks_batch,
+    #                                                                         )
+    #     # actor update
+    #     imp_weights = action_log_probs
 
-        surr = imp_weights * adv_targ
+    #     surr = imp_weights * adv_targ
 
-        if self._use_policy_active_masks:
-            policy_action_loss = (-torch.sum(surr,
-                                             dim=-1,
-                                             keepdim=True) * active_masks_batch).sum() / active_masks_batch.sum()
-        else:
-            policy_action_loss = -torch.sum(surr, dim=-1, keepdim=True).mean()
+    #     if self._use_policy_active_masks:
+    #         policy_action_loss = (-torch.sum(surr,
+    #                                          dim=-1,
+    #                                          keepdim=True) * active_masks_batch).sum() / active_masks_batch.sum()
+    #     else:
+    #         policy_action_loss = -torch.sum(surr, dim=-1, keepdim=True).mean()
 
-        policy_loss = policy_action_loss
+    #     policy_loss = policy_action_loss
 
-        # acyclic loss
-        acyclic_loss = 0
-        # mask_scores_tensor = torch.stack(mask_scores).permute(1,0,2)
-        # for i in range(adjs_batch.shape[0]):
-        #     adjs_ = adjs_batch[i]
-        #     acyclic_loss += cal_acyclic_loss(adjs_, self.num_agents)
-        acyclic_loss = acyclic_loss / adjs_batch.shape[0]
+    #     # acyclic loss
+    #     acyclic_loss = 0
+    #     # mask_scores_tensor = torch.stack(mask_scores).permute(1,0,2)
+    #     # for i in range(adjs_batch.shape[0]):
+    #     #     adjs_ = adjs_batch[i]
+    #     #     acyclic_loss += cal_acyclic_loss(adjs_, self.num_agents)
+    #     acyclic_loss = acyclic_loss / adjs_batch.shape[0]
 
-        return policy_loss + acyclic_loss
+    #     return policy_loss + acyclic_loss
     
     def ppo_update(self, sample, train_id, ordered_vertices, tau=1.0):
         # with torch.autograd.set_detect_anomaly(True):
@@ -412,31 +399,31 @@ class T_POLICY():
  
         return train_info
     
-    def train_graph(self, buffer, turn_on=True):
-        if self._use_popart or self._use_valuenorm:
-            advantages = buffer.returns[:-1] - self.value_normalizer.denormalize(buffer.value_preds[:-1])
-        else:
-            advantages = buffer.returns[:-1] - buffer.value_preds[:-1]
-        advantages_copy = advantages.copy()
-        advantages_copy[buffer.active_masks[:-1] == 0.0] = np.nan
-        mean_advantages = np.nanmean(advantages_copy)
-        std_advantages = np.nanstd(advantages_copy)
-        advantages = (advantages - mean_advantages) / (std_advantages + 1e-5)
+    # def train_graph(self, buffer, turn_on=True):
+    #     if self._use_popart or self._use_valuenorm:
+    #         advantages = buffer.returns[:-1] - self.value_normalizer.denormalize(buffer.value_preds[:-1])
+    #     else:
+    #         advantages = buffer.returns[:-1] - buffer.value_preds[:-1]
+    #     advantages_copy = advantages.copy()
+    #     advantages_copy[buffer.active_masks[:-1] == 0.0] = np.nan
+    #     mean_advantages = np.nanmean(advantages_copy)
+    #     std_advantages = np.nanstd(advantages_copy)
+    #     advantages = (advantages - mean_advantages) / (std_advantages + 1e-5)
 
-        if self._use_recurrent_policy:
-            data_generator = buffer.graph_recurrent_generator(advantages, self.num_mini_batch, self.data_chunk_length)
-        elif self._use_naive_recurrent:
-            data_generator = buffer.graph_naive_recurrent_generator(advantages, self.num_mini_batch)
-        else:
-            data_generator = buffer.graph_feed_forward_generator(advantages, self.num_mini_batch)
+    #     if self._use_recurrent_policy:
+    #         data_generator = buffer.graph_recurrent_generator(advantages, self.num_mini_batch, self.data_chunk_length)
+    #     elif self._use_naive_recurrent:
+    #         data_generator = buffer.graph_naive_recurrent_generator(advantages, self.num_mini_batch)
+    #     else:
+    #         data_generator = buffer.graph_feed_forward_generator(advantages, self.num_mini_batch)
 
-        graph_loss = 0
-        for sample in data_generator:
+    #     graph_loss = 0
+    #     for sample in data_generator:
 
-            loss = self.graph_update(sample)
-            graph_loss += loss
+    #         loss = self.graph_update(sample)
+        #     graph_loss += loss
  
-        return graph_loss
+        # return graph_loss
 
     def prep_training(self):
         self.policy.actor.train()

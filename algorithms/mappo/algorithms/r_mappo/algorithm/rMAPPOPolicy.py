@@ -1,9 +1,19 @@
 import torch
 from algorithms.mappo.algorithms.r_mappo.algorithm.r_actor_critic import R_Actor, R_Critic
-from algorithms.mappo.utils.util import update_linear_schedule
+from algorithms.mappo.utils.util import update_linear_schedule,soft_update,hard_update
 from torch.distributions import Categorical
 # 几乎没变
-
+import numpy as np
+import copy
+def _t2n(x):
+    return x.detach().cpu().numpy()
+def idv_merge(x):
+    if len(x[0].shape) == 0:
+        return torch.tensor(x).to(x[0].device)
+    x = torch.stack(x, dim=1)
+    init_shape = x.shape
+    x = x.reshape([-1, *init_shape[2:]])
+    return x
 class R_MAPPOPolicy:
     """
     MAPPO Policy  class. Wraps actor and critic networks to compute actions and value function predictions.

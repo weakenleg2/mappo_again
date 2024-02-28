@@ -8,10 +8,12 @@ import torch
 import torch.nn.functional as F
 import wandb
 import imageio
-from bta.runner.temporal.base_runner import Runner
-from bta.utils.util import update_linear_schedule, is_acyclic, pruning, generate_mask_from_order
-from bta.algorithms.utils.util import check
-from bta.algorithms.utils.distributions import FixedCategorical, FixedNormal
+from itertools import chain
+from gymnasium.spaces.utils import flatdim
+from algorithms.mappo.runner.separated.base_temporal import Runner
+from algorithms.mappo.utils.util_tem import update_linear_schedule, is_acyclic, pruning, generate_mask_from_order
+from algorithms.mappo.algorithms.bta_utils.util import check
+from algorithms.mappo.algorithms.bta_utils.distributions import FixedCategorical, FixedNormal
 import igraph as ig
 import math
 
@@ -21,12 +23,26 @@ def _t2n(x):
     else:
         return x.detach().cpu().numpy()
 
-class PredatorRunner(Runner):
+class WalkerRunner(Runner):
     """Runner class to perform training, evaluation. and data collection for SMAC. See parent class for details."""
 
     def __init__(self, config):
-        super(PredatorRunner, self).__init__(config)
+        super(WalkerRunner, self).__init__(config)
         self.env_infos = defaultdict(list)
+    def dict_to_tensor(self, x, iterable=True):
+        #obs_shape = self.envs.observation_space('agent_0').shape
+        if iterable:
+          obs_shape = x[0]['agent_0'].shape
+        else:
+          obs_shape = ()
+
+        output = np.zeros((len(x), self.num_agents, *obs_shape))
+        for i, d in enumerate(x):
+          d = list(d.values())
+          d = np.array(d)
+          output[i] = d
+
+        return output
 
     def run(self):
         self.warmup()
@@ -39,7 +55,8 @@ class PredatorRunner(Runner):
             if self.use_linear_lr_decay:
                 for agent_id in range(self.num_agents):
                     self.trainer[agent_id].policy.lr_decay(episode, episodes)
-
+            tot_comms = 0
+            tot_frames = 0
             if self.decay_id == 0:
                 # self.threshold = max(self.initial_threshold - (self.initial_threshold * ((episode*self.decay_factor) / float(episodes))), 0.)
                 self.temperature = min(0.1 + ((self.all_args.temperature - 0.1) * (episode*self.decay_factor / float(episodes))), self.all_args.temperature)
@@ -65,9 +82,13 @@ class PredatorRunner(Runner):
                     
                 # Obser reward and next obs
                 env_actions = joint_actions if self.use_action_attention else hard_actions
-                obs, share_obs, rewards, dones, infos, _ = self.envs.step(np.squeeze(env_actions, axis=-1))
+                obs,  rewards, dones, infos = self.envs.step(np.squeeze(env_actions, axis=-1))
                 # share_obs = obs.copy()
-                data = obs, share_obs, rewards, dones, infos, values, actions, hard_actions, action_log_probs, \
+                obs = self.dict_to_tensor(obs)
+                # print(obs.shape)
+                rewards = self.dict_to_tensor(rewards, False)
+                rewards = np.expand_dims(rewards, -1)
+                data = obs, rewards, dones, infos, values, actions, hard_actions, action_log_probs, \
                     rnn_states, rnn_states_critic, joint_actions, joint_action_log_probs, rnn_states_joint, thresholds, bias, logits
                 # insert data into buffer
                 self.insert(data)
@@ -82,51 +103,57 @@ class PredatorRunner(Runner):
             total_num_steps = (episode + 1) * \
                 self.episode_length * self.n_rollout_threads
             # save model
-            if (total_num_steps % self.save_interval == 0 or episode == episodes - 1):
+            if (episode % self.save_interval == 0 or episode == episodes - 1):
                 self.save()
 
             # log information
-            if total_num_steps % self.log_interval == 0:
+            if episode % self.log_interval == 0:
                 end = time.time()
-                print("\n Env {} Algo {} updates {}/{} episodes, total num timesteps {}/{}, FPS {}.\n"
-                      .format(self.env_name,
+                print("\nScenario {} Algo {} Exp {} updates {}/{} episodes, total num timesteps {}/{}, FPS {}.\n"
+                      .format(self.all_args.scenario_name,
                               self.algorithm_name,
+                              self.experiment_name,
                               episode,
                               episodes,
                               total_num_steps,
                               self.num_env_steps,
                               int(total_num_steps / (end - start))))
-                for agent_id in range(self.num_agents):
-                    train_infos[agent_id].update({"average_episode_rewards_by_eplength": np.mean(self.buffer[agent_id].rewards) * self.episode_length})
-                #     train_infos[agent_id]["threshold"] = _t2n(self.threshold_dist().mean) if self.decay_id == 3 else self.threshold
-                # print("threshold is {}".format(train_infos[0]["threshold"]))
-                # print("grad norm is {}".format(train_infos[0]["actor_grad_norm"]))
-                # print("attention grad norm is {}".format(train_infos[0]["attention_grad_norm"]))
-                print("average episode rewards of agent 0 is {}".format(train_infos[0]["average_episode_rewards_by_eplength"]))
+
+                if self.env_name == "MPE":
+                    for agent_id in range(self.num_agents):
+                        train_infos[agent_id].update({"average_episode_rewards": np.mean(
+                            self.buffer[agent_id].rewards) * self.episode_length})
                 self.log_train(train_infos, total_num_steps)
-                self.log_env(self.env_infos, total_num_steps=total_num_steps)
-                self.env_infos = defaultdict(list)
-                if self.use_wandb:
-                    wandb.log({"average_episode_rewards_by_eplength": train_infos[0]["average_episode_rewards_by_eplength"]}, step=total_num_steps)
-                else:
-                    self.writter.add_scalars("average_episode_rewards_by_eplength", {"aver_rewards": train_infos[0]["average_episode_rewards_by_eplength"]},
-                                            total_num_steps)
+                print('Average_episode_rewards: ', np.mean(self.buffer[0].rewards) * self.episode_length)
+                wandb.log({"com_savings":(tot_frames - tot_comms)/tot_frames},total_num_steps)
 
             # eval
-            if total_num_steps % self.eval_interval == 0 and self.use_eval:
+            # self.writter.add_scalar('communication_savings', 1 - tot_comms / (self.episode_length * self.num_agents * self.n_rollout_threads), episode)
+            if episode % self.eval_interval == 0 and self.use_eval:
                 self.eval(total_num_steps)
 
-    def warmup(self):
+    def warmup(self): 
         # reset env
-        obs, share_obs, _ = self.envs.reset()
-        # replay buffer
-        # in GRF, we have full observation, so mappo is just ippo
-        if not self.use_centralized_V:
-            share_obs = obs
+        obs = self.envs.reset()
+        # print(obs.shape)
+        obs = self.dict_to_tensor(obs)
+        # print(obs.shape)
+
+        #last_actions = np.zeros(
+          #(self.n_rollout_threads, self.num_agents * (flatdim(self.envs.action_space('agent_0')) - 1)))
+
+        share_obs = []
+        for o in obs:
+            share_obs.append(list(chain(*o)))
+        share_obs = np.array(share_obs)
+        #share_obs = np.concatenate([share_obs, last_actions], -1)
 
         for agent_id in range(self.num_agents):
-            self.buffer[agent_id].share_obs[0] = share_obs[:, agent_id].copy()
-            self.buffer[agent_id].obs[0] = obs[:, agent_id].copy()
+            if not self.use_centralized_V:
+                share_obs = np.array(list(obs[:, agent_id]))
+            self.buffer[agent_id].share_obs[0] = share_obs.copy()
+            self.buffer[agent_id].obs[0] = np.array(
+                list(obs[:, agent_id])).copy()
 
     @torch.no_grad()
     def collect(self, step):
@@ -137,8 +164,8 @@ class PredatorRunner(Runner):
             stds = torch.zeros(self.n_rollout_threads, self.num_agents, self.action_dim).to(self.device)
         obs_feats = torch.zeros(self.n_rollout_threads, self.num_agents, self.obs_emb_size).to(self.device)
         hard_actions = torch.zeros(self.n_rollout_threads, self.num_agents, 1, dtype=torch.int32).to(self.device)
-        action_log_probs = np.zeros((self.n_rollout_threads, self.num_agents, 1))
-        rnn_states = np.zeros((self.n_rollout_threads, self.num_agents, self.recurrent_N, self.hidden_size))
+        action_log_probs = np.zeros((self.n_rollout_threads, self.num_agents, (self.action_dim-1)))
+        rnn_states = np.zeros((self.n_rollout_threads, self.num_agents, self.recurrent_N, self.hidden_size*2))
         rnn_states_critic = np.zeros((self.n_rollout_threads, self.num_agents, self.recurrent_N, self.hidden_size))
   
         ordered_vertices = [i for i in range(self.num_agents)]
@@ -166,10 +193,14 @@ class PredatorRunner(Runner):
                                                             # tau=self.temperature
                                                             )
             hard_actions[:, agent_idx] = torch.argmax(action, -1, keepdim=True).to(torch.int)
+            # print(actions[:, agent_idx].shape,action.shape)
             actions[:, agent_idx] = _t2n(action)
-            logits[:, agent_idx] = logit if self.discrete else logit.mean
+            # print(logit.shape)
+            # print("logit",logit)
+            # logits[:, agent_idx] = logit if self.discrete else logit.mean
+            logits[:, agent_idx] = torch.mean(logit)
             if not self.discrete:
-                stds[:, agent_idx] = logit.stddev
+                stds[:, agent_idx] = torch.std(logit)
             obs_feats[:, agent_idx] = obs_feat
             action_log_probs[:, agent_idx] = _t2n(action_log_prob)
             values[:, agent_idx] = _t2n(value)
@@ -254,22 +285,28 @@ class PredatorRunner(Runner):
         return actions, hard_actions, eval_rnn_states
 
     def insert(self, data):
-        obs, share_obs, rewards, dones, infos, values, actions, hard_actions, action_log_probs, \
+        obs, rewards, dones, infos, values, actions, hard_actions, action_log_probs, \
             rnn_states, rnn_states_critic, joint_actions, joint_action_log_probs, rnn_states_joint, thresholds, bias, logits = data
         
-        dones_env = np.all(dones, axis=-1)
+        dones_env = dones
         
-        rnn_states[dones_env == True] = np.zeros(((dones_env == True).sum(), self.num_agents, self.recurrent_N, self.hidden_size), dtype=np.float32)
-        rnn_states_critic[dones_env == True] = np.zeros(((dones_env == True).sum(), self.num_agents, self.recurrent_N, self.hidden_size), dtype=np.float32)
+        rnn_states[dones_env == True] = np.zeros(((dones_env == True).sum(), self.num_agents, self.recurrent_N, self.actor_hidden_size * 2), dtype=np.float32)
+        rnn_states_critic[dones_env == True] = np.zeros(((dones_env == True).sum(), self.num_agents, self.recurrent_N, self.critic_hidden_size), dtype=np.float32)
         masks = np.ones((self.n_rollout_threads, self.num_agents, 1), dtype=np.float32)
         masks[dones_env == True] = np.zeros(((dones_env == True).sum(), self.num_agents, 1), dtype=np.float32)
 
-        if not self.use_centralized_V:
-            share_obs = obs
+        #merged_actions = actions.reshape(self.n_rollout_threads, self.num_agents * (flatdim(self.envs.action_space('agent_0')) - 1))
+        share_obs = []
+        for o in obs:
+            share_obs.append(list(chain(*o)))
+        share_obs = np.array(share_obs)
+        #share_obs = np.concatenate([share_obs, merged_actions], -1)
 
         for agent_id in range(self.num_agents):
-            self.buffer[agent_id].insert(share_obs[:, agent_id],
-                                        obs[:, agent_id],
+            if not self.use_centralized_V:
+                share_obs = np.array(list(obs[:, agent_id]))
+            self.buffer[agent_id].insert(share_obs,
+                                         np.array(list(obs[:, agent_id])),
                                         rnn_states[:, agent_id],
                                         rnn_states_critic[:, agent_id],
                                         actions[:, :],

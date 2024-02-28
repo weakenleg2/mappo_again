@@ -9,7 +9,7 @@ import torch
 from custom_envs.multiwalker_communicate import multiwalker_com
 from algorithms.mappo.config import get_config
 # from algorithms.mappo.envs.mpe.MPE_env import MPEEnv
-from algorithms.mappo.envs.env_wrappers import SubprocVecEnv, DummyVecEnv
+from algorithms.mappo.envs.env_wrappers import SubprocVecEnv, DummyVecEnv, ShareSubprocVecEnv
 # from gymnasium import wrappers
 
 """Train script for MPEs."""
@@ -31,12 +31,14 @@ def make_train_env(all_args):
             # env.seed(all_args.seed)
             # env.seed(all_args.seed + rank * 10000)
             env.reset(50000 + rank * 10000)
+            # print(env[0].reset(50000 + rank * 10000))
             return env
         return init_env
     if all_args.n_rollout_threads == 1:
         return DummyVecEnv([get_env_fn(0)])
     else:
         return SubprocVecEnv([get_env_fn(i) for i in range(all_args.n_rollout_threads)])
+        # return ShareSubprocVecEnv(([get_env_fn(i) for i in range(all_args.n_rollout_threads)]))
 
 
 def make_eval_env(all_args):
@@ -85,10 +87,6 @@ def main(args):
     elif all_args.algorithm_name == "ippo":
         print("u are choosing to use ippo, we set use_centralized_V to be False")
         all_args.use_centralized_V = False
-    elif all_args.algorithm_name == "bta":
-        print("u are choosing to use bta with rnn, we set use_recurrent_policy to be True")
-        all_args.use_recurrent_policy = True
-        all_args.use_naive_recurrent_policy = False
     else:
         raise NotImplementedError
 
@@ -168,14 +166,11 @@ def main(args):
     }
 
     # run experiments
-    # if all_args.share_policy:
-    #     print("we choose to use shared policy for all agents")
+    if all_args.share_policy:
+        print("notice here, the agent still uses individual actor-critic network")
 
-    #     from algorithms.mappo.runner.shared.walker_runner import MPERunner as Runner
-    # else:
-    #     from algorithms.mappo.runner.separated.walker_nocomponent import MPERunner as Runner
-    # if "temporal" in all_args.algorithm_name:
-    from algorithms.mappo.runner.separated.walker_tem_runner import WalkerRunner as Runner
+        from algorithms.mappo.runner.shared.walker_runner_bpo import SMACRunner as Runner
+    
 
     runner = Runner(config)
     runner.run()
@@ -275,6 +270,7 @@ def simple_train(args):
 
     # run experiments
     if all_args.share_policy:
+        print("notice here, the agent still uses individual actor-critic network")
         from algorithms.mappo.runner.shared.mpe_runner import MPERunner as Runner
     else:
         from algorithms.mappo.runner.separated.mpe_runner import MPERunner as Runner
