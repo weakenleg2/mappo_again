@@ -141,8 +141,9 @@ class MPERunner(Runner):
                             #{'individual_rewards': np.mean(idv_rews)})
                         train_infos[agent_id].update({"average_episode_rewards": np.mean(
                             self.buffer[agent_id].rewards) * 25})
+                        
                 self.log_train(train_infos, total_num_steps)
-                # print('Average_episode_rewards: ', np.mean(self.buffer[0].rewards) * 25)
+                # check?
                 wandb.log({"com_savings":1 - tot_comms / (self.episode_length * self.num_agents * self.n_rollout_threads)},total_num_steps)
 
 

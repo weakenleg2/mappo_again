@@ -11,7 +11,7 @@ from custom_envs.multiwalker_communicate import multiwalker_com
 from algorithms.mappo.config import get_config
 # from algorithms.mappo.envs.mpe.MPE_env import MPEEnv
 from algorithms.mappo.envs.env_wrappers import SubprocVecEnv, DummyVecEnv
-# from gymnasium import wrappers
+import random
 
 """Train script for MPEs."""
 
@@ -23,20 +23,24 @@ def make_train_env(all_args):
                                                 fall_reward=-10.0, shared_reward=False,
                                                 terminate_on_fall=True,remove_on_fall=True,
                                                 terrain_length=200,
-                                                penalty_ratio=all_args.com_ratio,
+                                                penalty_ratio=0,
+                                                # we set it in training not env
                                                 full_comm=all_args.full_comm,
                                                 delay = all_args.delay,
                                                 packet_drop_prob = all_args.packet_drop_prob,
                                                 max_cycles=500)
             # means no individual death agent
             # env.seed(all_args.seed)
+            # env.seed(all_args.seed + rank * 10000)
+            env.reset(50000 + rank * 10000)
+            # print(env[0].reset(50000 + rank * 10000))
             return env
         return init_env
     if all_args.n_rollout_threads == 1:
+        # print("here")
         return DummyVecEnv([get_env_fn(0)])
     else:
         return SubprocVecEnv([get_env_fn(i) for i in range(all_args.n_rollout_threads)])
-
 
 def make_eval_env(all_args):
     def get_env_fn(rank):
@@ -61,12 +65,23 @@ def parse_args(args, parser):
                         default='Multiwalker', help="Which scenario to run on")
     # parser.add_argument("--num_landmarks", type=int, default=3)
     parser.add_argument('--num_agents', type=int,
-                        default=6, help="number of players")
+                        default=3, help="number of players")
 
     all_args = parser.parse_known_args(args)[0]
 
     return all_args
+def reset_all_seeds(seed_value):
+    np.random.seed(seed_value)
+    torch.manual_seed(seed_value)
+    torch.cuda.manual_seed_all(seed_value)  # if using CUDA
+    if torch.cuda.is_available():
+        torch.backends.cudnn.deterministic = True
+        torch.backends.cudnn.benchmark = False
 
+def reinitialize_environment(envs,args):
+    envs.close()  # assuming your environments support close()
+    envs = make_train_env(args)  # recreate environments
+    return envs
 def main(args):
     parser = get_config()
     all_args = parse_args(args, parser)
@@ -81,6 +96,11 @@ def main(args):
         print("u are choosing to use mappo, we set use_recurrent_policy & use_naive_recurrent_policy to be False")
         all_args.use_recurrent_policy = False 
         all_args.use_naive_recurrent_policy = False
+    elif all_args.algorithm_name == "hdpo":
+        print("u are choosing to use hdpo, we set use_recurrent_policy to be True,use_centralized_V to be False")
+        all_args.use_recurrent_policy = True
+        all_args.use_naive_recurrent_policy = False
+        all_args.use_centralized_V = False
     elif all_args.algorithm_name == "ippo":
         print("u are choosing to use ippo, we set use_centralized_V to be False")
         all_args.use_centralized_V = False
@@ -146,10 +166,6 @@ def main(args):
 
     # env init
     envs = make_train_env(all_args)
-    # envs.render_mode = 'rgb_array'
-    # envs = wrappers.RecordVideo(envs, video_folder=run_dir,
-    #                                     episode_trigger=lambda x: x % 50 == 0, # save video every 50 episode
-    #                                     name_prefix=all_args.env_name, disable_logger=True)
     eval_envs = make_eval_env(all_args) if all_args.use_eval else None
     num_agents = all_args.num_agents
 
@@ -162,16 +178,28 @@ def main(args):
         "run_dir": run_dir
     }
 
-    # run experiments
-    if all_args.share_policy:
-        print("we choose to use shared policy for all agents")
-
-        from algorithms.mappo.runner.shared.walker_runner import MPERunner as Runner
-    else:
-        from algorithms.mappo.runner.separated.walker_happo_runner import MPERunner as Runner
-
+    
+    from algorithms.mappo.runner.separated.walker_pre import MPERunner as Runner
     runner = Runner(config)
-    runner.run()
+    most_common_index = runner.run()
+    most_common_index = [0, 1, 1]
+    reset_all_seeds(all_args.seed)
+    envs = reinitialize_environment(envs,all_args)
+
+    config = {
+        "all_args": all_args,
+        "envs": envs,
+        "eval_envs": eval_envs,
+        "num_agents": num_agents,
+        "device": device,
+        "run_dir": run_dir
+    }
+    # torch.manual_seed(all_args.seed)
+    # torch.cuda.manual_seed_all(all_args.seed)
+    # np.random.seed(all_args.seed)
+    from algorithms.mappo.runner.separated.walker_runner_hdpo import MPERunner as walker_afterclassRunner
+    runner_train = walker_afterclassRunner(most_common_index,config)
+    runner_train.run()
     
     # post process
     envs.close()
@@ -217,9 +245,8 @@ def simple_train(args):
         os.makedirs(str(run_dir))
 
     # wandb
-    all_args.use_wandb = True
+    all_args.use_wandb = False
     if all_args.use_wandb:
-        print("here")
         run = wandb.init(config=all_args,
                          project=all_args.env_name,
                          entity=all_args.user_name,

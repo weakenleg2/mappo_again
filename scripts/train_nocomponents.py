@@ -9,7 +9,6 @@ from pathlib import Path
 import torch
 from custom_envs.multiwalker_communicate import multiwalker_com
 from algorithms.mappo.config import get_config
-# from algorithms.mappo.envs.mpe.MPE_env import MPEEnv
 from algorithms.mappo.envs.env_wrappers import SubprocVecEnv, DummyVecEnv, ShareSubprocVecEnv
 # from gymnasium import wrappers
 
@@ -81,6 +80,7 @@ def main(args):
         print("u are choosing to use rmappo, we set use_recurrent_policy to be True")
         all_args.use_recurrent_policy = True
         all_args.use_naive_recurrent_policy = False
+        all_args.use_centralized_V = True
     elif all_args.algorithm_name == "mappo":
         print("u are choosing to use mappo, we set use_recurrent_policy & use_naive_recurrent_policy to be False")
         all_args.use_recurrent_policy = False 
@@ -167,12 +167,12 @@ def main(args):
     }
 
     # run experiments
-    if all_args.share_policy:
-        print("we choose to use shared networks for all agents")
+    # if all_args.share_policy:
+    #     print("we choose to use shared networks for all agents,can not converge")
 
-        from algorithms.mappo.runner.shared.walker_runner import MPERunner as Runner
-    else:
-        from algorithms.mappo.runner.separated.walker_nocomponent import MPERunner as Runner
+    #     from algorithms.mappo.runner.shared.walker_runner import MPERunner as Runner
+    # else:
+    from algorithms.mappo.runner.separated.walker_nocomponent import MPERunner as Runner
 
     runner = Runner(config)
     runner.run()

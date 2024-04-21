@@ -1,6 +1,7 @@
 import torch
 import torch.nn as nn
 from .util import init, get_clones
+from algorithms.mappo.utils.util import check, get_shape_from_obs_space, get_shape_from_act_space
 
 """MLP modules."""
 
@@ -30,7 +31,7 @@ class MLPLayer(nn.Module):
 
 
 class MLPBase(nn.Module):
-    def __init__(self, args, hidden_size, obs_shape, cat_self=True, attn_internal=False):
+    def __init__(self, args, hidden_size, obs_shape,paramter_actionsize,action_size, cat_self=True, attn_internal=False):
         super(MLPBase, self).__init__()
 
         self._use_feature_normalization = args.use_feature_normalization
@@ -39,13 +40,19 @@ class MLPBase(nn.Module):
         self._stacked_frames = args.stacked_frames
         self._layer_N = args.layer_N
         self.hidden_size = hidden_size
-
         obs_dim = obs_shape[0]
+        if paramter_actionsize is not None and action_size is not None:
+            action_size = get_shape_from_act_space(action_size)
+
+            # print(obs_dim,paramter_actionsize,action_size)
+            input_size = (obs_dim+action_size)
+        else:
+            input_size = obs_dim
 
         if self._use_feature_normalization:
-            self.feature_norm = nn.LayerNorm(obs_dim)
+            self.feature_norm = nn.LayerNorm(input_size)
 
-        self.mlp = MLPLayer(obs_dim, self.hidden_size,
+        self.mlp = MLPLayer(input_size, self.hidden_size,
                               self._layer_N, self._use_orthogonal, self._use_ReLU)
 
     def forward(self, x):

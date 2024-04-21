@@ -12,7 +12,6 @@ from algorithms.mappo.config import get_config
 from algorithms.mappo.envs.env_wrappers import SubprocVecEnv, DummyVecEnv, ShareSubprocVecEnv
 # from gymnasium import wrappers
 
-"""Train script for MPEs."""
 
 def make_train_env(all_args):
     def get_env_fn(rank):
@@ -22,7 +21,8 @@ def make_train_env(all_args):
                                                 fall_reward=-10.0, shared_reward=False,
                                                 terminate_on_fall=True,remove_on_fall=True,
                                                 terrain_length=200,
-                                                penalty_ratio=all_args.com_ratio,
+                                                penalty_ratio=0,
+                                                # we set it in training not env
                                                 full_comm=all_args.full_comm,
                                                 delay = all_args.delay,
                                                 packet_drop_prob = all_args.packet_drop_prob,
@@ -67,6 +67,7 @@ def parse_args(args, parser):
     parser.add_argument('--num_agents', type=int,
                         default=3, help="number of players")
 
+
     all_args = parser.parse_known_args(args)[0]
 
     return all_args
@@ -77,14 +78,11 @@ def main(args):
     all_args.episode_length *= all_args.n_trajectories
     torch.autograd.set_detect_anomaly(True, check_nan=True)
 
-    if all_args.algorithm_name == "rmappo":
-        print("u are choosing to use rmappo, we set use_recurrent_policy to be True")
+    if all_args.algorithm_name == "hdpo":
+        print("u are choosing to use hdpo, we set use_recurrent_policy to be True")
         all_args.use_recurrent_policy = True
         all_args.use_naive_recurrent_policy = False
-    elif all_args.algorithm_name == "mappo":
-        print("u are choosing to use mappo, we set use_recurrent_policy & use_naive_recurrent_policy to be False")
-        all_args.use_recurrent_policy = False 
-        all_args.use_naive_recurrent_policy = False
+        all_args.use_centralized_V = False
     elif all_args.algorithm_name == "ippo":
         print("u are choosing to use ippo, we set use_centralized_V to be False")
         all_args.use_centralized_V = False

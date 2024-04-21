@@ -31,6 +31,7 @@ class R_MAPPO():
         self.data_chunk_length = args.data_chunk_length
         self.value_loss_coef = args.value_loss_coef
         self.entropy_coef = args.entropy_coef
+        self.entropyppo_coef = args.entropyppo_coef
         self.max_grad_norm = args.max_grad_norm       
         self.huber_delta = args.huber_delta
 
@@ -138,12 +139,11 @@ class R_MAPPO():
             policy_action_loss = -torch.sum(torch.min(surr1, surr2), dim=-1, keepdim=True).mean()
 
         policy_loss = policy_action_loss
-        # print("policy_loss",policy_loss)
 
         self.policy.actor_optimizer.zero_grad()
 
         if update_actor:
-            (policy_loss - dist_entropy * self.entropy_coef).backward()
+            (policy_loss- dist_entropy * self.entropyppo_coef).backward()
 
         if self._use_max_grad_norm:
             actor_grad_norm = nn.utils.clip_grad_norm_(self.policy.actor.parameters(), self.max_grad_norm)

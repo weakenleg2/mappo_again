@@ -397,13 +397,19 @@ class MultiWalkerEnv:
         
         self.last_message = np.zeros(8)
         self.message_buffer = []
+        self.break_limit = False
         
     def send_message(self, message, target_agent_id, delay):
+        
         if np.random.rand() >= self.packet_drop_prob:
+            # packet drop and delay
+            # print("send message")
+            # print("send message",message)
 
             current_step = self.get_cycle_count()
             deliver_at_step = current_step + delay
             self.message_buffer.append((message, deliver_at_step, target_agent_id))
+        
         if len(self.message_buffer) > (delay+5):
             self.message_buffer.pop(0)
 
@@ -411,7 +417,9 @@ class MultiWalkerEnv:
     def process_message_buffer(self, agent_id, current_step):
         received_message = np.zeros(8)
         new_buffer = []
+        # print("self.message_buffer",self.message_buffer)
         for message, deliver_at_step, target_agent_id in self.message_buffer:
+            # print(deliver_at_step <= current_step and target_agent_id == agent_id)
             if deliver_at_step <= current_step and target_agent_id == agent_id:
                 received_message = message  # Last message for this agent in time window
             else:
@@ -513,6 +521,8 @@ class MultiWalkerEnv:
         self.lidar_render = 0
         self.last_message = np.zeros(8)
         self.message_buffer = []
+        self.current_round_message_count = 0
+        self.break_limit = False
         
 
         self._generate_package()
@@ -531,9 +541,7 @@ class MultiWalkerEnv:
         self.last_rewards = [0 for _ in range(self.n_walkers)]
         self.last_dones = [False for _ in range(self.n_walkers)]
         for i in range(self.n_walkers):
-            # message = self.process_message_buffer(i,current_step = current_step)
-            # print("message",message)
-            # self.last_obs[i] = np.concatenate([mod_obs[i], message])
+            
             self.last_obs[i] = np.concatenate([o[i],np.zeros(8)])
         self.frames = 0
 
@@ -575,9 +583,11 @@ class MultiWalkerEnv:
             )
             assert len(self.last_message) == (len(neighbor_obs)+1)
             if self.walkers[i].comm_signal>0:
+                # print("self.last_message",len(self.last_message))
                 self.last_message = np.concatenate((neighbor_obs,[0]))
-            # self.last_message = neighbor_obs
+                # self.current_round_message_count += 1
 
+            # self.last_message = neighbor_obs
             else:
                 self.last_message[-1]+=1
             self.send_message(self.last_message,i,delay=self.delay)
@@ -636,21 +646,26 @@ class MultiWalkerEnv:
             # print("mode",mod_obs)
 
             for i in range(self.n_walkers):
+                # print(self.current_round_message_count > self.bandwidth_limit)
+                # if self.current_round_message_count > self.bandwidth_limit:
+                #     # print("self.current_round_message_coun0",self.bandwidth_limit)
+                #     message = np.zeros(8)
+                #     self.break_limit = True
+                # else:
                 message = self.process_message_buffer(i,current_step = current_step)
+                    # print("message",message)
                 # print("message",message)
                 self.last_obs[i] = np.concatenate([mod_obs[i], message])
             for i in range(self.n_walkers):
                 # print(self.walkers[i].comm_signal)
                 if self.walkers[i].comm_signal>0:
-                    # paramter tuning
-                    # if rewards[i]<0:
-                    # print(rewards[i])
+                    # print("penalty",self.penalty_ratio)
                     rewards[i] = rewards[i]-self.penalty_ratio
-                    # need to be tuned
-                    # else:
-                    #     rewards[i] = rewards[i]*(1-self.penalty_ratio)
+                    # rewards[i] = rewards[i]-5
+                    # print("minus")
+                    # rewards[i] = rewards[i]
                     self.walkers[i].communication_count += 1
-                    
+            # self.current_round_message_count = 0     
             global_reward = rewards.mean()
             local_reward = rewards * self.local_ratio
             self.last_rewards = (

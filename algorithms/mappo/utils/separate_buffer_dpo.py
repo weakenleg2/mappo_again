@@ -23,6 +23,7 @@ class SeparatedReplayBuffer(object):
         self._use_popart = args.use_popart
         self._use_valuenorm = args.use_valuenorm
         self._use_proper_time_limits = args.use_proper_time_limits
+        # self.com_ratio = args.com_ratio
 
         obs_shape = get_shape_from_obs_space(obs_space)
         # print("here",obs_shape)
@@ -37,12 +38,15 @@ class SeparatedReplayBuffer(object):
         self.share_obs = np.zeros((self.episode_length + 1, self.n_rollout_threads, *share_obs_shape), dtype=np.float32)
         self.obs = np.zeros((self.episode_length + 1, self.n_rollout_threads, *obs_shape), dtype=np.float32)
 
-        self.rnn_states = np.zeros((self.episode_length + 1, self.n_rollout_threads, self.recurrent_N, self.rnn_hidden_size * 2), dtype=np.float32)
+        # self.rnn_states = np.zeros((self.episode_length + 1, self.n_rollout_threads, self.recurrent_N, self.rnn_hidden_size * 2), dtype=np.float32)
         self.rnn_states_critic = np.zeros((self.episode_length + 1, self.n_rollout_threads, self.recurrent_N, self.rnn_critic_hidden_size), dtype=np.float32)
+        self.rnn_states = np.zeros((self.episode_length + 1, self.n_rollout_threads, self.recurrent_N, self.rnn_hidden_size), dtype=np.float32)
+        self.rnn_states_penalty = np.zeros((self.episode_length + 1, self.n_rollout_threads, self.recurrent_N, self.rnn_hidden_size), dtype=np.float32)
 
         self.value_preds = np.zeros((self.episode_length + 1, self.n_rollout_threads, 1), dtype=np.float32)
         self.returns = np.zeros((self.episode_length + 1, self.n_rollout_threads, 1), dtype=np.float32)
-        
+        self.penalty_value = np.zeros((self.episode_length + 1, self.n_rollout_threads, 1), dtype=np.float32)
+        self.penalty_returns = np.zeros((self.episode_length + 1, self.n_rollout_threads, 1), dtype=np.float32)
         if act_space.__class__.__name__ == 'Discrete':
             self.available_actions = np.ones((self.episode_length + 1, self.n_rollout_threads, act_space.n), dtype=np.float32)
         else:
@@ -51,30 +55,38 @@ class SeparatedReplayBuffer(object):
         act_shape = get_shape_from_act_space(act_space)
 
         self.actions = np.zeros((self.episode_length, self.n_rollout_threads, act_shape), dtype=np.float32)
-        self.log_probs = np.zeros((self.episode_length, self.n_rollout_threads, act_shape+1), dtype=np.float32)
+
+        # self.features = np.zeros((self.episode_length, self.n_rollout_threads, self.rnn_hidden_size), dtype=np.float32)
+        
+        # self.log_probs = np.zeros((self.episode_length, self.n_rollout_threads, act_shape+1), dtype=np.float32)
 
         self.action_log_probs = np.zeros((self.episode_length, self.n_rollout_threads, act_shape), dtype=np.float32)
         self.rewards = np.zeros((self.episode_length, self.n_rollout_threads, 1), dtype=np.float32)
-        
+        self.penalty_rewards = np.zeros((self.episode_length, self.n_rollout_threads, 1), dtype=np.float32)
+
         self.masks = np.ones((self.episode_length + 1, self.n_rollout_threads, 1), dtype=np.float32)
         self.bad_masks = np.ones_like(self.masks)
         self.active_masks = np.ones_like(self.masks)
 
         self.step = 0
 
-    def insert(self, share_obs, obs, rnn_states, rnn_states_critic, actions, action_log_probs,log_probs,
-               value_preds, rewards, masks, bad_masks=None, active_masks=None, available_actions=None):
+    def insert(self, share_obs, obs, rnn_states, rnn_states_critic, actions, action_log_probs,
+               value_preds, rewards, masks,penalty_reward,rnn_states_penalty,penalty_values, bad_masks=None, active_masks=None, available_actions=None):
         self.share_obs[self.step + 1] = share_obs.copy()
         # print(self.share_obs.shape)
         self.obs[self.step + 1] = obs.copy()
         self.rnn_states[self.step + 1] = rnn_states.copy()
         self.rnn_states_critic[self.step + 1] = rnn_states_critic.copy()
+        self.rnn_states_penalty[self.step + 1] = rnn_states_penalty.copy()
         self.actions[self.step] = actions.copy()
-        self.log_probs[self.step] = log_probs.copy()
+        # self.features[self.step] = features.copy()
+        # self.log_probs[self.step] = log_probs.copy()
         self.action_log_probs[self.step] = action_log_probs.copy()
         self.value_preds[self.step] = value_preds.copy()
         self.rewards[self.step] = rewards.copy()
         self.masks[self.step + 1] = masks.copy()
+        self.penalty_value[self.step] = penalty_values.copy()
+        self.penalty_rewards[self.step]= penalty_reward.copy()
         if bad_masks is not None:
             self.bad_masks[self.step + 1] = bad_masks.copy()
         if active_masks is not None:
@@ -109,6 +121,7 @@ class SeparatedReplayBuffer(object):
         self.obs[0] = self.obs[-1].copy()
         self.rnn_states[0] = self.rnn_states[-1].copy()
         self.rnn_states_critic[0] = self.rnn_states_critic[-1].copy()
+        self.rnn_states_penalty[0] = self.rnn_states_penalty[-1].copy()
         self.masks[0] = self.masks[-1].copy()
         self.bad_masks[0] = self.bad_masks[-1].copy()
         self.active_masks[0] = self.active_masks[-1].copy()
@@ -164,6 +177,49 @@ class SeparatedReplayBuffer(object):
                 self.returns[-1] = next_value
                 for step in reversed(range(self.rewards.shape[0])):
                     self.returns[step] = self.returns[step + 1] * self.gamma * self.masks[step + 1] + self.rewards[step]
+    def compute_penalty(self, next_value, value_normalizer=None):
+        if self._use_proper_time_limits:
+            if self._use_gae:
+                self.penalty_value[-1] = next_value
+                gae = 0
+                for step in reversed(range(self.penalty_rewards.shape[0])):
+                    if self._use_popart or self._use_valuenorm:
+                        delta = self.penalty_rewards[step] + self.gamma * value_normalizer.denormalize(self.penalty_value[
+                            step + 1]) * self.masks[step + 1] - value_normalizer.denormalize(self.penalty_value[step])
+                        gae = delta + self.gamma * self.gae_lambda * self.masks[step + 1] * gae
+                        gae = gae * self.bad_masks[step + 1]
+                        self.penalty_returns[step] = gae + value_normalizer.denormalize(self.penalty_value[step])
+                    else:
+                        delta = self.penalty_rewards[step] + self.gamma * self.penalty_value[step + 1] * self.masks[step + 1] - self.penalty_value[step]
+                        gae = delta + self.gamma * self.gae_lambda * self.masks[step + 1] * gae
+                        gae = gae * self.bad_masks[step + 1]
+                        self.penalty_returns[step] = gae + self.penalty_value[step]
+            else:
+                self.penalty_returns[-1] = next_value
+                for step in reversed(range(self.penalty_rewards.shape[0])):
+                    if self._use_popart:
+                        self.penalty_returns[step] = (self.penalty_returns[step + 1] * self.gamma * self.masks[step + 1] + self.penalty_rewards[step]) * self.bad_masks[step + 1] \
+                            + (1 - self.bad_masks[step + 1]) * value_normalizer.denormalize(self.penalty_value[step])
+                    else:
+                        self.penalty_returns[step] = (self.penalty_returns[step + 1] * self.gamma * self.masks[step + 1] + self.penalty_rewards[step]) * self.bad_masks[step + 1] \
+                            + (1 - self.bad_masks[step + 1]) * self.penalty_value[step]
+        else:
+            if self._use_gae:
+                self.penalty_value[-1] = next_value
+                gae = 0
+                for step in reversed(range(self.penalty_rewards.shape[0])):
+                    if self._use_popart or self._use_valuenorm:
+                        delta = self.penalty_rewards[step] + self.gamma * value_normalizer.denormalize(self.penalty_value[step + 1]) * self.masks[step + 1] - value_normalizer.denormalize(self.penalty_value[step])
+                        gae = delta + self.gamma * self.gae_lambda * self.masks[step + 1] * gae
+                        self.penalty_returns[step] = gae + value_normalizer.denormalize(self.penalty_value[step])
+                    else:
+                        delta = self.penalty_rewards[step] + self.gamma * self.penalty_value[step + 1] * self.masks[step + 1] - self.penalty_value[step]
+                        gae = delta + self.gamma * self.gae_lambda * self.masks[step + 1] * gae
+                        self.penalty_returns[step] = gae + self.penalty_value[step]
+            else:
+                self.penalty_returns[-1] = next_value
+                for step in reversed(range(self.penalty_rewards.shape[0])):
+                    self.penalty_returns[step] = self.penalty_returns[step + 1] * self.gamma * self.masks[step + 1] + self.penalty_rewards[step]
 
     def feed_forward_generator(self, advantages, num_mini_batch=None, mini_batch_size=None):
         episode_length, n_rollout_threads = self.rewards.shape[0:2]
@@ -240,18 +296,22 @@ class SeparatedReplayBuffer(object):
             obs = _cast(self.obs[:-1])
 
         actions = _cast(self.actions)
-        log_probs = _cast(self.log_probs)
+        # features = _cast(self.features)
+
+        # log_probs = _cast(self.log_probs)
         action_log_probs = _cast(self.action_log_probs)
         advantages = _cast(advantages)
         value_preds = _cast(self.value_preds[:-1])
         returns = _cast(self.returns[:-1])
         masks = _cast(self.masks[:-1])
         active_masks = _cast(self.active_masks[:-1])
+        penalty_value = _cast(self.penalty_value[:-1])
+        penalty_returns = _cast(self.penalty_returns[:-1])
         # rnn_states = _cast(self.rnn_states[:-1])
         # rnn_states_critic = _cast(self.rnn_states_critic[:-1])
         rnn_states = self.rnn_states[:-1].transpose(1, 0, 2, 3).reshape(-1, *self.rnn_states.shape[2:])
         rnn_states_critic = self.rnn_states_critic[:-1].transpose(1, 0, 2, 3).reshape(-1, *self.rnn_states_critic.shape[2:])
-
+        rnn_states_penalty = self.rnn_states_penalty[:-1].transpose(1, 0, 2, 3).reshape(-1, *self.rnn_states_penalty.shape[2:])
         if self.available_actions is not None:
             available_actions = _cast(self.available_actions[:-1])
 
@@ -260,6 +320,7 @@ class SeparatedReplayBuffer(object):
             obs_batch = []
             rnn_states_batch = []
             rnn_states_critic_batch = []
+            rnn_states_penalty_batch = []
             actions_batch = []
             available_actions_batch = []
             value_preds_batch = []
@@ -267,8 +328,11 @@ class SeparatedReplayBuffer(object):
             masks_batch = []
             active_masks_batch = []
             old_action_log_probs_batch = []
-            old_log_probs_batch = []
+            # old_log_probs_batch = []
             adv_targ = []
+            penalty_returns_batch = []
+            penalty_value_batch = []
+            # features_batch = []
 
             for index in indices:
                 ind = index * data_chunk_length
@@ -276,40 +340,51 @@ class SeparatedReplayBuffer(object):
                 share_obs_batch.append(share_obs[ind:ind+data_chunk_length])
                 obs_batch.append(obs[ind:ind+data_chunk_length])
                 actions_batch.append(actions[ind:ind+data_chunk_length])
+                # features_batch.append(features[ind:ind+data_chunk_length])
                 if self.available_actions is not None:
                     available_actions_batch.append(available_actions[ind:ind+data_chunk_length])
                 value_preds_batch.append(value_preds[ind:ind+data_chunk_length])
                 return_batch.append(returns[ind:ind+data_chunk_length])
+
+                penalty_returns_batch.append(penalty_returns[ind:ind+data_chunk_length])
+                penalty_value_batch.append(penalty_value[ind:ind+data_chunk_length])
+
                 masks_batch.append(masks[ind:ind+data_chunk_length])
                 active_masks_batch.append(active_masks[ind:ind+data_chunk_length])
                 old_action_log_probs_batch.append(action_log_probs[ind:ind+data_chunk_length])
-                old_log_probs_batch.append(log_probs[ind:ind+data_chunk_length])
+                # old_log_probs_batch.append(log_probs[ind:ind+data_chunk_length])
                 adv_targ.append(advantages[ind:ind+data_chunk_length])
                 # size [T+1 N Dim]-->[T N Dim]-->[T*N,Dim]-->[1,Dim]
                 rnn_states_batch.append(rnn_states[ind])
                 rnn_states_critic_batch.append(rnn_states_critic[ind])
+                rnn_states_penalty_batch.append(rnn_states_penalty[ind])
 
             L, N = data_chunk_length, mini_batch_size
 
             # These are all from_numpys of size (N, L, Dim)
             share_obs_batch = np.stack(share_obs_batch)
             obs_batch = np.stack(obs_batch)
+            # features_batch = np.stack(features_batch)
 
             actions_batch = np.stack(actions_batch)
             if self.available_actions is not None:
                 available_actions_batch = np.stack(available_actions_batch)
             value_preds_batch = np.stack(value_preds_batch)
             return_batch = np.stack(return_batch)
+
+            penalty_returns_batch = np.stack(penalty_returns_batch)
+            penalty_value_batch = np.stack(penalty_value_batch)
+
             masks_batch = np.stack(masks_batch)
             active_masks_batch = np.stack(active_masks_batch)
             old_action_log_probs_batch = np.stack(old_action_log_probs_batch)
-            old_log_probs_batch = np.stack(old_log_probs_batch)
+            # old_log_probs_batch = np.stack(old_log_probs_batch)
             adv_targ = np.stack(adv_targ)
 
             # States is just a (N, -1) from_numpy
             rnn_states_batch = np.stack(rnn_states_batch).reshape(N, *self.rnn_states.shape[2:])
             rnn_states_critic_batch = np.stack(rnn_states_critic_batch).reshape(N, *self.rnn_states_critic.shape[2:])
-
+            rnn_states_penalty_batch = np.stack(rnn_states_penalty_batch).reshape(N, *self.rnn_states_penalty.shape[2:])
             # Flatten the (L, N, ...) from_numpys to (L * N, ...)
             share_obs_batch = _flatten(L, N, share_obs_batch)
             obs_batch = _flatten(L, N, obs_batch)
@@ -320,84 +395,20 @@ class SeparatedReplayBuffer(object):
                 available_actions_batch = None
             value_preds_batch = _flatten(L, N, value_preds_batch)
             return_batch = _flatten(L, N, return_batch)
+            penalty_returns_batch = _flatten(L, N, penalty_returns_batch)
+            penalty_value_batch = _flatten(L, N, penalty_value_batch)
+            # features_batch = _flatten(L, N, features_batch)
+
             masks_batch = _flatten(L, N, masks_batch)
             active_masks_batch = _flatten(L, N, active_masks_batch)
             old_action_log_probs_batch = _flatten(L, N, old_action_log_probs_batch)
-            old_log_probs_batch =   _flatten(L, N, old_log_probs_batch)
+            # old_log_probs_batch =   _flatten(L, N, old_log_probs_batch)
             adv_targ = _flatten(L, N, adv_targ)
 
-            yield share_obs_batch, obs_batch, rnn_states_batch, rnn_states_critic_batch, actions_batch, value_preds_batch, return_batch, masks_batch, active_masks_batch, old_action_log_probs_batch,old_log_probs_batch, adv_targ, available_actions_batch
+            yield share_obs_batch, obs_batch, rnn_states_batch, rnn_states_critic_batch,\
+                  actions_batch, value_preds_batch, return_batch, masks_batch,\
+                 active_masks_batch, old_action_log_probs_batch,\
+                 adv_targ, available_actions_batch, penalty_returns_batch, \
+                penalty_value_batch, rnn_states_penalty_batch
 
-    def naive_recurrent_generator(self, advantages, num_mini_batch):
-        n_rollout_threads = self.rewards.shape[1]
-        assert n_rollout_threads >= num_mini_batch, (
-            "PPO requires the number of processes ({}) "
-            "to be greater than or equal to the number of "
-            "PPO mini batches ({}).".format(n_rollout_threads, num_mini_batch))
-        num_envs_per_batch = n_rollout_threads // num_mini_batch
-        perm = torch.randperm(n_rollout_threads).numpy()
-        for start_ind in range(0, n_rollout_threads, num_envs_per_batch):
-            share_obs_batch = []
-            obs_batch = []
-            rnn_states_batch = []
-            rnn_states_critic_batch = []
-            actions_batch = []
-            available_actions_batch = []
-            value_preds_batch = []
-            return_batch = []
-            masks_batch = []
-            active_masks_batch = []
-            old_action_log_probs_batch = []
-            adv_targ = []
-
-            for offset in range(num_envs_per_batch):
-                ind = perm[start_ind + offset]
-                share_obs_batch.append(self.share_obs[:-1, ind])
-                obs_batch.append(self.obs[:-1, ind])
-                rnn_states_batch.append(self.rnn_states[0:1, ind])
-                rnn_states_critic_batch.append(self.rnn_states_critic[0:1, ind])
-                actions_batch.append(self.actions[:, ind])
-                if self.available_actions is not None:
-                    available_actions_batch.append(self.available_actions[:-1, ind])
-                value_preds_batch.append(self.value_preds[:-1, ind])
-                return_batch.append(self.returns[:-1, ind])
-                masks_batch.append(self.masks[:-1, ind])
-                active_masks_batch.append(self.active_masks[:-1, ind])
-                old_action_log_probs_batch.append(self.action_log_probs[:, ind])
-                adv_targ.append(advantages[:, ind])
-
-            # [N[T, dim]]
-            T, N = self.episode_length, num_envs_per_batch
-            # These are all from_numpys of size (T, N, -1)
-            share_obs_batch = np.stack(share_obs_batch, 1)
-            obs_batch = np.stack(obs_batch, 1)
-            actions_batch = np.stack(actions_batch, 1)
-            if self.available_actions is not None:
-                available_actions_batch = np.stack(available_actions_batch, 1)
-            value_preds_batch = np.stack(value_preds_batch, 1)
-            return_batch = np.stack(return_batch, 1)
-            masks_batch = np.stack(masks_batch, 1)
-            active_masks_batch = np.stack(active_masks_batch, 1)
-            old_action_log_probs_batch = np.stack(old_action_log_probs_batch, 1)
-            adv_targ = np.stack(adv_targ, 1)
-
-            # States is just a (N, -1) from_numpy [N[1,dim]]
-            rnn_states_batch = np.stack(rnn_states_batch, 1).reshape(N, *self.rnn_states.shape[2:])
-            rnn_states_critic_batch = np.stack(rnn_states_critic_batch, 1).reshape(N, *self.rnn_states_critic.shape[2:])
-
-            # Flatten the (T, N, ...) from_numpys to (T * N, ...)
-            share_obs_batch = _flatten(T, N, share_obs_batch)
-            obs_batch = _flatten(T, N, obs_batch)
-            actions_batch = _flatten(T, N, actions_batch)
-            if self.available_actions is not None:
-                available_actions_batch = _flatten(T, N, available_actions_batch)
-            else:
-                available_actions_batch = None
-            value_preds_batch = _flatten(T, N, value_preds_batch)
-            return_batch = _flatten(T, N, return_batch)
-            masks_batch = _flatten(T, N, masks_batch)
-            active_masks_batch = _flatten(T, N, active_masks_batch)
-            old_action_log_probs_batch = _flatten(T, N, old_action_log_probs_batch)
-            adv_targ = _flatten(T, N, adv_targ)
-
-            yield share_obs_batch, obs_batch, rnn_states_batch, rnn_states_critic_batch, actions_batch, value_preds_batch, return_batch, masks_batch, active_masks_batch, old_action_log_probs_batch, adv_targ, available_actions_batch
+    

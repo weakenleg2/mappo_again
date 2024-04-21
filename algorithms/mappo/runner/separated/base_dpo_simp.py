@@ -40,6 +40,7 @@ class Runner(object):
         self.use_wandb = self.all_args.use_wandb
         self.use_render = self.all_args.use_render
         self.recurrent_N = self.all_args.recurrent_N
+        # self.com_p = 0.05
 
         # interval
         self.save_interval = self.all_args.save_interval
@@ -94,7 +95,7 @@ class Runner(object):
                 self.envs.share_observation_space.shape[0]+self.envs.observation_space('agent_0').shape[0],
             ),  # 24 is the observation space of each walker, 3 is the package observation space
             dtype=np.float32,
-        ) if self.use_centralized_V else self.envs.observation_space('agent_0')
+            ) if self.use_centralized_V else self.envs.observation_space('agent_0')
             
             # print("self.envs.share_observation_space",self.envs.share_observation_space('agent_0'))
             # policy network
@@ -104,7 +105,7 @@ class Runner(object):
                         self.envs.action_space('agent_0'),
                         device = self.device)
             self.policy.append(po)
-        # agent_classifications = [0, 0, 0, 1]
+        # agent_classifications = [0, 1, 1]
 
         # # Dictionary to store policies for each class
         # class_policies = {}
@@ -141,7 +142,7 @@ class Runner(object):
                 self.envs.share_observation_space.shape[0]+self.envs.observation_space('agent_0').shape[0],
             ),  # 24 is the observation space of each walker, 3 is the package observation space
             dtype=np.float32,
-        ) if self.use_centralized_V else self.envs.observation_space('agent_0')
+            ) if self.use_centralized_V else self.envs.observation_space('agent_0')
             # buffer
             bu = SeparatedReplayBuffer(self.all_args,
                                        self.envs.observation_space('agent_0'),
@@ -174,7 +175,11 @@ class Runner(object):
                                                                 self.buffer[agent_id].masks[-1])
             next_value = _t2n(next_value)
             self.buffer[agent_id].compute_returns(next_value, self.trainer[agent_id].value_normalizer)
-
+            next_penalty,_ = self.trainer[agent_id].policy.get_penalty(self.buffer[agent_id].share_obs[-1], 
+                                                                self.buffer[agent_id].rnn_states_penalty[-1],
+                                                                self.buffer[agent_id].masks[-1])
+            next_penalty = _t2n(next_penalty)
+            self.buffer[agent_id].compute_penalty(next_penalty, self.trainer[agent_id].value_normalizer)
     def train(self):
         train_infos = []
         for agent_id in range(self.num_agents):

@@ -71,6 +71,7 @@ class SimpleEnv(AECEnv):
         self._index_map = {
             agent.name: idx for idx, agent in enumerate(self.world.agents)
         }
+        self.message_queue = []
 
         self._agent_selector = agent_selector(self.agents)
 
@@ -130,13 +131,13 @@ class SimpleEnv(AECEnv):
 
     def observe(self, agent):
         return self.scenario.observation(
-            self.world.agents[self._index_map[agent]], self.world
+            self.world.agents[self._index_map[agent]], self.world, self.steps
         ).astype(np.float32)
 
     def state(self):
         states = tuple(
             self.scenario.observation(
-                self.world.agents[self._index_map[agent]], self.world
+                self.world.agents[self._index_map[agent]], self.world, None
             ).astype(np.float32)
             for agent in self.possible_agents
         )
@@ -166,7 +167,7 @@ class SimpleEnv(AECEnv):
             action = self.current_actions[i]
             self._set_action(action, agent,
                              self.action_spaces[agent.name])
-            agent.action = agent.action_callback(agent, self.world)
+            agent.action = agent.action_callback(agent,self.steps, self.world)
             # print("agent.action.c",agent.action.c)
             if agent.action.c[0] > agent.action.c[1]:
                 self.infos['comms'] += 1
@@ -235,7 +236,7 @@ class SimpleEnv(AECEnv):
         self.current_actions[current_idx] = action
 
         if next_idx == 0:
-            self.infos['comms'] = 0
+            # self.infos['comms'] = 0
             self._execute_world_step()
             self.steps += 1
             if self.steps >= self.max_cycles:

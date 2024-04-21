@@ -158,7 +158,7 @@ def get_config():
 
     # prepare parameters
     parser.add_argument("--algorithm_name", type=str,
-                        default='mappo', choices=["rmappo", "mappo","ippo"])
+                        default='mappo', choices=["rmappo", "mappo","ippo","hdpo"])
 
     parser.add_argument("--experiment_name", type=str, default="check", help="an identifier to distinguish different experiment.")
     parser.add_argument("--seed", type=int, default=1, help="Random seed for numpy/torch")
@@ -182,11 +182,11 @@ def get_config():
     parser.add_argument("--env_name", type=str, default='MPE', help="specify the name of environment")
     parser.add_argument("--use_obs_instead_of_state", action='store_true',
                         default=False, help="Whether to use global state or concatenated obs")
-    parser.add_argument("--full_comm", action='store_true', help="if agents have full communication")
+    parser.add_argument("--full_comm", action='store_true',default=False, help="if agents have full communication")
     parser.add_argument("--com_ratio", type=float, default=0.05, help="Ratio for agent communication penalty,0.05 default for multiwalker,0.1 for simple spread")
     parser.add_argument("--local_ratio", type=float, default=0.5, help="Ratio for agent rewards")
-    parser.add_argument("--delay", type=int, default=0, help="delay frames.")
-    parser.add_argument("--packet_drop_prob", type=int, default=0, help="drop prob")
+    parser.add_argument("--delay", type=int, default=2, help="delay frames.")
+    parser.add_argument("--packet_drop_prob", type=int, default=0.2, help="drop prob")
 
     # replay buffer parameters
     parser.add_argument("--episode_length", type=int,
@@ -248,6 +248,8 @@ def get_config():
                         help='learning rate (default: 5e-4)')
     parser.add_argument("--critic_lr", type=float, default=5e-4,
                         help='critic learning rate (default: 5e-4)')
+    parser.add_argument("--penalty_lr", type=float, default=5e-4,
+                        help='penalty learning rate (default: 5e-4)')
     parser.add_argument("--opti_eps", type=float, default=1e-5,
                         help='RMSprop optimizer epsilon (default: 1e-5)')
     parser.add_argument("--weight_decay", type=float, default=0)
@@ -267,8 +269,9 @@ def get_config():
                         help='ppo clip parameter (default: 0.2)')
     parser.add_argument("--num_mini_batch", type=int, default=1,
                         help='number of batches for ppo (default: 1)')
-    parser.add_argument("--entropy_coef", type=float, default=0.01,
+    parser.add_argument("--entropy_coef", type=float, default=0.015,
                         help='entropy term coefficient (default: 0.01)')
+    parser.add_argument("--entropyppo_coef", type=float, default=3e-3)
     parser.add_argument("--value_loss_coef", type=float,
                         default=0.5, help='value loss coefficient (default: 0.5)')
     parser.add_argument("--policy_value_loss_coef", type=float,
@@ -327,97 +330,18 @@ def get_config():
     # pretrained parameters
     parser.add_argument("--model_dir", type=str, default=None, help="by default None. set the path to pretrained model.")
     parser.add_argument("--algorithm_mode", type=str, default='ops', help="by default None. set the path to pretrained model.")
-    parser.add_argument("--pretrain_dur", type=int, default=40, help="pretrainsteps.")
+    parser.add_argument("--pretrain_dur", type=int, default=10, help="pretrainsteps.")
     parser.add_argument("--vae_lr", type=float, default=1e-5, help="lr for vae.")
-    parser.add_argument("--clusters", type=int, default=3, help="clusters.")
     parser.add_argument("--vae_epoch", type=int, default=10, help="epoch for vae")
     parser.add_argument("--vae_zfeatures", type=int, default=10, help="features for vae")
     parser.add_argument("--vae_kl", type=float, default=0.0001, help="kl for vae")
     parser.add_argument("--vae_batchsize", type=int, default=512, help="batchsize for vae")
     parser.add_argument("--mid_gap", type=int, default=560, help="mid gap for vae")
 
-     # attn parameters
-    parser.add_argument("--use_attn", action='store_true', default=False, help=" by default False, use attention tactics.")
-    parser.add_argument("--attn_N", type=int, default=1, help="the number of attn layers, by default 1")
-    parser.add_argument("--attn_size", type=int, default=64, help="by default, the hidden size of attn layer")
-    parser.add_argument("--attn_heads", type=int, default=2, help="by default, the # of multiply heads")
-    parser.add_argument("--dropout", type=float, default=0.0, help="by default 0, the dropout ratio of attn layer.")
-    parser.add_argument("--use_average_pool",
-                        action='store_false', default=True, help="by default True, use average pooling for attn model.")
-    parser.add_argument("--use_attn_internal", action='store_false', default=True, help="by default True, whether to strengthen own characteristics")
-    parser.add_argument("--use_cat_self", action='store_false', default=True, help="by default True, whether to strengthen own characteristics")
-    parser.add_argument("--attention_lr", type=float, default=5e-4,
-                        help='attention learning rate (default: 5e-4)')
     
-    # temporal parameters
-    parser.add_argument("--use_graph", action='store_true', default=False, help=" by default False, use temporal graph.")
-    parser.add_argument("--mix_id", type=int,
-                        default=0, help="choose 0 to use mixer, 1 to use hyper, 2 to use attention")
-    parser.add_argument("--train_sim_seq", type=int,
-                        default=0, help="choose 0 to train seq agent first, 1 to train seq epoch first, 2 to train sim")
-    parser.add_argument("--token_factor", type=float,
-                        default=0.5, help="default is 1")
-    parser.add_argument("--channel_factor", type=float,
-                        default=4, help="default is 1")
-    parser.add_argument('--max_edges', type=int, default=10)
-    parser.add_argument('--num_layers', type=int, default=1)
-    parser.add_argument('--time_channels', type=int, default=100)
-    parser.add_argument('--time_gap', type=int, default=10)
-    parser.add_argument("--temperature", type=float, default=1.0,
-                        help='gumble softmax temperature')
-    parser.add_argument("--use_action_attention",  action='store_true', default=True,
-                        help='action attention')
-    parser.add_argument("--use_vtrace",  action='store_false', default=True,
-                        help='use_vtrace')
-    parser.add_argument("--skip_connect",  action='store_false', default=True,
-                        help='skip connection (default: True)')
-    parser.add_argument("--automatic_kl_tuning",  action='store_true', default=False,
-                        help='Automaically adjust kl_coef (default: False)')
-    parser.add_argument("--automatic_entropy_tuning",  action='store_true', default=False,
-                        help='Automaically adjust entropy_coef (default: False)')
-    parser.add_argument("--automatic_target_entropy_tuning",  action='store_true', default=False,
-                        help='Automaically adjust target entropy (default: False)')
-    parser.add_argument("--exponential_avg_discount", type=float, default=0.9,
-                        help='exponential average discount')
-    parser.add_argument("--exponential_var_discount", type=float, default=0.99,
-                        help='exponential variance discount')
-    parser.add_argument("--target_entropy_discount", type=float, default=0.9,
-                        help='target entropy discount')
-    parser.add_argument("--standard_deviation_threshold", type=float, default=0.05,
-                        help='standard deviation threshold')
-    parser.add_argument("--average_threshold", type=float, default=0.01,
-                        help='average threshold')
-    parser.add_argument("--threshold", type=float, default=1.,
-                        help='tradoff between bpta and mappo')
-    parser.add_argument("--decay_factor", type=float, default=1.5,
-                        help='tradoff between bpta and mappo')
-    parser.add_argument("--agent_layer", type=int, default=1,
-                        help='stacked agent layer')
-    parser.add_argument("--random_train", action='store_true', default=False,
-                        help='')
-    parser.add_argument("--decay_id", type=int,
-                        default=0, help="choose 0 to use linear_decay, 1 to use cos_decay, 2 to use step_decay")
-    # parser.add_argument("--linear_decay", type=args_str2bool, default=False, 
-    #                     help='')
-    # parser.add_argument("--cos_decay", type=args_str2bool, default=True, 
-    #                     help='')
-    # parser.add_argument("--step_decay", type=args_str2bool, default=False, 
-    #                     help='')
-    parser.add_argument("--bc", action='store_false', default=True,
-                        help='')
-    parser.add_argument("--bc_epoch", type=int, default=15,
-                        help='')
-    parser.add_argument("--mix_std_x_coef", type=float, default=1.0,
-                        help='')
-    parser.add_argument("--mix_std_y_coef", type=float, default=0.5,
-                        help='')
-    # ppg parameters
-    parser.add_argument("--aux_epoch", type=int, default=5,
-                        help='number of auxiliary epochs (default: 4)')
-    parser.add_argument("--clone_coef", type=float, default=1.0,
-                        help='clone term coefficient (default: 0.01)')
-    parser.add_argument("--use_single_network", action='store_true',
-                        default=False, help="Whether to use centralized V function")
+    
+    
+    
     #dpo parameters
     
 
@@ -432,7 +356,7 @@ def get_config():
     parser.add_argument('--correct_kl', type=bool, default=False)
     parser.add_argument('--sp_update_policy', type=str, default='hard')
     parser.add_argument('--inner_refine', action='store_false', default=True)
-    parser.add_argument('--para_lower_bound', type=float, default=0.00001)
+    parser.add_argument('--para_lower_bound', type=float, default=1e-6)
     parser.add_argument('--para_upper_bound', type=float, default=1000.0)
     parser.add_argument('--penalty_beta_sqrt_type', type=str, default='adaptive')
     parser.add_argument('--penalty_beta_type', type=str, default='adaptive')
@@ -449,8 +373,5 @@ def get_config():
     parser.add_argument('--dtar_sqrt_kl', type=float, default=0.02)
     parser.add_argument('--sqrt_kl_para1', type=float, default=1.5)
     parser.add_argument('--sqrt_kl_para2', type=float, default=2.0)
-
-    
-
 
     return parser

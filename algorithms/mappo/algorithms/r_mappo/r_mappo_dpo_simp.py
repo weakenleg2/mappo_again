@@ -4,6 +4,8 @@ import torch.nn as nn
 from algorithms.mappo.utils.util import get_gard_norm, huber_loss, mse_loss
 from algorithms.mappo.utils.valuenorm import ValueNorm
 from algorithms.mappo.algorithms.utils.util import check
+from scipy.optimize import minimize
+
 # 几乎没变
 def hard_update(target, source):
         """
@@ -14,6 +16,9 @@ def hard_update(target, source):
         """
         for target_param, param in zip(target.parameters(), source.parameters()):
             target_param.data.copy_(param.data)
+
+
+
 class R_MAPPO():
     """
     Trainer class for MAPPO to update policies.
@@ -95,8 +100,10 @@ class R_MAPPO():
         
 
         self.term_dist = None
+        self.η_continuous = np.random.randn()
+        self.η_discrete = np.random.randn()
 
-    def cal_value_loss(self, values, value_preds_batch, return_batch, active_masks_batch):
+    def cal_value_loss(self, values, value_preds_batch, return_batch, active_masks_batch,imp_weights):
         """
         Calculate value function loss.
         :param values: (torch.Tensor) value function predictions.
@@ -106,8 +113,10 @@ class R_MAPPO():
 
         :return value_loss: (torch.Tensor) value function loss.
         """
+        # 
         value_pred_clipped = value_preds_batch + (values - value_preds_batch).clamp(-self.clip_param,
                                                                                         self.clip_param)
+        # value_pred_clipped = torch.clamp(imp_weights, 1.0) * (values - value_preds_batch) + value_preds_batch
         if self._use_popart or self._use_valuenorm:
             self.value_normalizer.update(return_batch)
             error_clipped = self.value_normalizer.normalize(return_batch) - value_pred_clipped
@@ -134,7 +143,46 @@ class R_MAPPO():
             value_loss = value_loss.mean()
 
         return value_loss
+    def cal_penalty_loss(self, values, value_preds_batch, return_batch, active_masks_batch,imp_weights):
+        """
+        Calculate penalty loss.
+        :param values: (torch.Tensor) value function predictions.
+        :param value_preds_batch: (torch.Tensor) "old" value  predictions from data batch (used for value clip loss)
+        :param return_batch: (torch.Tensor) reward to go returns.
+        :param active_masks_batch: (torch.Tensor) denotes if agent is active or dead at a given timesep.
 
+        :return value_loss: (torch.Tensor) value function loss.
+        """
+        # 
+        value_pred_clipped = value_preds_batch + (values - value_preds_batch).clamp(-self.clip_param,
+                                                                                        self.clip_param)
+        # value_pred_clipped = torch.clamp(imp_weights, 1.0) * (values - value_preds_batch) + value_preds_batch
+        if self._use_popart or self._use_valuenorm:
+            self.value_normalizer.update(return_batch)
+            error_clipped = self.value_normalizer.normalize(return_batch) - value_pred_clipped
+            error_original = self.value_normalizer.normalize(return_batch) - values
+        else:
+            error_clipped = return_batch - value_pred_clipped
+            error_original = return_batch - values
+
+        if self._use_huber_loss:
+            value_loss_clipped = huber_loss(error_clipped, self.huber_delta)
+            value_loss_original = huber_loss(error_original, self.huber_delta)
+        else:
+            value_loss_clipped = mse_loss(error_clipped)
+            value_loss_original = mse_loss(error_original)
+
+        if self._use_clipped_value_loss:
+            value_loss = torch.max(value_loss_original, value_loss_clipped)
+        else:
+            value_loss = value_loss_original
+
+        if self._use_value_active_masks:
+            value_loss = (value_loss * active_masks_batch).sum() / active_masks_batch.sum()
+        else:
+            value_loss = value_loss.mean()
+
+        return value_loss
     def ppo_update(self, sample, update_actor=True):
         """
         Update actor and critic networks.
@@ -150,25 +198,32 @@ class R_MAPPO():
         """
         share_obs_batch, obs_batch, rnn_states_batch, rnn_states_critic_batch, actions_batch, \
         value_preds_batch, return_batch, masks_batch, active_masks_batch, old_action_log_probs_batch, \
-        old_log_probs_batch,adv_targ, available_actions_batch = sample
+        adv_targ, available_actions_batch, penalty_returns_batch, \
+        penalty_value_batch, rnn_states_penalty_batch = sample
 
         old_action_log_probs_batch = check(old_action_log_probs_batch).to(**self.tpdv)
         adv_targ = check(adv_targ).to(**self.tpdv)
         value_preds_batch = check(value_preds_batch).to(**self.tpdv)
         return_batch = check(return_batch).to(**self.tpdv)
+
+        penalty_returns_batch = check(penalty_returns_batch).to(**self.tpdv)
+        penalty_value_batch = check(penalty_value_batch).to(**self.tpdv)
+
         active_masks_batch = check(active_masks_batch).to(**self.tpdv)
-        old_log_probs_batch = check(old_log_probs_batch).to(**self.tpdv)
 
         # Reshape to do in a single forward pass for all steps
         values, action_log_probs, dist_entropy = self.policy.evaluate_actions(share_obs_batch,
                                                                               obs_batch, 
                                                                               rnn_states_batch, 
                                                                               rnn_states_critic_batch, 
-                                                                              actions_batch, 
+                                                                              actions_batch,
                                                                               masks_batch, 
                                                                               available_actions_batch,
                                                                               active_masks_batch)
-        # actor update
+        penalty_values,_ = self.policy.get_penalty(share_obs_batch,rnn_states_penalty_batch,masks_batch)
+        
+
+        
         imp_weights = torch.exp(action_log_probs - old_action_log_probs_batch)
         # probs = self.policy.get_probs(obs_batch, rnn_states_batch, masks_batch)
         # print("probs",probs)
@@ -188,6 +243,9 @@ class R_MAPPO():
         com_kl = com_kl.unsqueeze(-1)
         kl = torch.cat((ctrl_kl,com_kl), dim=-1)
         # print("kl",kl)
+        # sqrt_ctrl_kl = torch.sqrt(torch.max(ctrl_kl + eps_sqrt,eps_sqrt * torch.ones_like(ctrl_kl)))        # print("self._use_policy_active_masks",self._use_policy_active_masks)
+        # sqrt_com_kl = torch.sqrt(torch.max(com_kl + eps_sqrt,eps_sqrt * torch.ones_like(com_kl)))        # print("self._use_policy_active_masks",self._use_policy_active_masks)
+
         sqrt_kl = torch.sqrt(torch.max(kl + eps_sqrt,eps_sqrt * torch.ones_like(kl)))        # print("self._use_policy_active_masks",self._use_policy_active_masks)
         if self._use_policy_active_masks:
             # print("we use policy active masks")
@@ -203,17 +261,26 @@ class R_MAPPO():
             # print(term1, sqrt_coeff * term_sqrt_kl, kl_coeff * term_kl)
             # print(term1)
             # print('term_sqrt_kl = {} term_kl = {}'.format(self.term_sqrt_kl,self.term_kl))                                                          
-            policy_loss = policy_action_loss + sqrt_coeff * term_sqrt_kl + kl_coeff * term_kl
+            policy_loss = policy_action_loss + sqrt_coeff * (term_sqrt_kl) + kl_coeff * (term_kl)
+            # policy_loss = policy_action_loss
             policy_loss = policy_loss.mean()
-        else:
-            policy_loss = term1 + sqrt_coeff * term_sqrt_kl + kl_coeff * term_kl
-            policy_loss = policy_loss.mean()
+            
+            
+            # policy_loss = policy_action_loss/self.args.num_agents + (self.η_continuous+self.η_discrete)/2 * (sqrt_kl) + self.η_continuous * (termctrl_kl-0.001)+\
+            #                          self.η_discrete * (term_sqrtcom_kl-0.0001) + self.η_discrete * (termcom_kl-0.0001)
+            # policy_loss = policy_action_loss
+            # policy_loss = policy_action_loss/self.args.num_agents + (self.η_continuous+self.η_discrete)/2 * (sqrt_kl)+\
+            #                           (self.η_continuous+self.η_discrete)/2 * (kl)
+            # policy_loss = policy_loss.mean()
+        
 
         hard_update(self.policy.target_actor, self.policy.actor)
         self.policy.actor_optimizer.zero_grad()
 
         if update_actor:
+            # print(" self.entropy_coef", self.entropy_coef)
             (policy_loss - dist_entropy * self.entropy_coef).backward()
+            # policy_loss.backward()
 
         if self._use_max_grad_norm:
             # print("we norm the grad")
@@ -224,7 +291,7 @@ class R_MAPPO():
         self.policy.actor_optimizer.step()
 
         # critic update
-        value_loss = self.cal_value_loss(values, value_preds_batch, return_batch, active_masks_batch)
+        value_loss = self.cal_value_loss(values, value_preds_batch, return_batch, active_masks_batch, imp_weights)
 
         self.policy.critic_optimizer.zero_grad()
 
@@ -236,8 +303,22 @@ class R_MAPPO():
             critic_grad_norm = get_gard_norm(self.policy.critic.parameters())
 
         self.policy.critic_optimizer.step()
+        #penalty loss
+        penalty_loss = self.cal_penalty_loss(penalty_values, penalty_value_batch, penalty_returns_batch, active_masks_batch, imp_weights)
 
-        return value_loss, critic_grad_norm, policy_loss, dist_entropy, actor_grad_norm, imp_weights
+        self.policy.penalty_optimizer.zero_grad()
+
+        (penalty_loss * self.value_loss_coef).backward()
+
+        if self._use_max_grad_norm:
+            penalty_grad_norm = nn.utils.clip_grad_norm_(self.policy.penalty.parameters(), self.max_grad_norm)
+        else:
+            penalty_grad_norm = get_gard_norm(self.policy.penalty.parameters())
+
+        self.policy.penalty_optimizer.step()
+
+
+        return value_loss, critic_grad_norm, policy_loss, dist_entropy, actor_grad_norm, imp_weights, penalty_loss, penalty_grad_norm
 
     def train(self, buffer, update_actor=True):
         """
@@ -248,11 +329,11 @@ class R_MAPPO():
         :return train_info: (dict) contains information regarding training update (e.g. loss, grad norms, etc).
         """
         if self.term_kl is not None:
-            print('term_sqrt_kl = {} term_kl = {} old_beta_sqrt_kl = {}, old_beta_kl = {}'.format(self.term_sqrt_kl,
-                                                                                                    self.term_kl,
-                                                                                                    self.beta_sqrt_kl,
-                                                                                                    self.beta_kl))
-            print('prev beta_kl = {}'.format(self.beta_kl))
+            # print('term_sqrt_kl = {} term_kl = {} old_beta_sqrt_kl = {}, old_beta_kl = {}'.format(self.term_sqrt_kl,
+                                                                                                    # self.term_kl,
+                                                                                                    # self.beta_sqrt_kl,
+                                                                                                    # self.beta_kl))
+            # print('prev beta_kl = {}'.format(self.beta_kl))
 
             if self.args.penalty_beta_type == 'adaptive':
                 if self.term_kl < self.kl_lower:
@@ -269,7 +350,7 @@ class R_MAPPO():
 
                 elif self.term_sqrt_kl > self.sqrt_kl_upper:
                     self.beta_sqrt_kl *= self.sqrt_kl_para2
-            print('before_clip_beta_sqrt_kl = {}, before_clip_beta_kl = {}'.format(self.beta_sqrt_kl, self.beta_kl))
+            # print('before_clip_beta_sqrt_kl = {}, before_clip_beta_kl = {}'.format(self.beta_sqrt_kl, self.beta_kl))
 
             if self.beta_kl < self.para_lower_bound:
                 self.beta_kl = self.para_lower_bound
@@ -280,7 +361,7 @@ class R_MAPPO():
             if self.beta_sqrt_kl > self.para_upper_bound:
                 self.beta_sqrt_kl = self.para_upper_bound
 
-            print('new_beta_sqrt_kl = {}, new_beta_kl = {}'.format(self.beta_sqrt_kl, self.beta_kl))
+            # print('new_beta_sqrt_kl = {}, new_beta_kl = {}'.format(self.beta_sqrt_kl, self.beta_kl))
         if self._use_popart or self._use_valuenorm:
             advantages = buffer.returns[:-1] - self.value_normalizer.denormalize(buffer.value_preds[:-1])
         else:
@@ -301,7 +382,8 @@ class R_MAPPO():
         train_info['actor_grad_norm'] = 0
         train_info['critic_grad_norm'] = 0
         train_info['ratio'] = 0
-
+        
+        
         for _ in range(self.ppo_epoch):
             if self._use_recurrent_policy:
                 data_generator = buffer.recurrent_generator(advantages, self.num_mini_batch, self.data_chunk_length)
@@ -312,8 +394,8 @@ class R_MAPPO():
 
             for sample in data_generator:
 
-                value_loss, critic_grad_norm, policy_loss, dist_entropy, actor_grad_norm, imp_weights \
-                    = self.ppo_update(sample, update_actor)
+                value_loss, critic_grad_norm, policy_loss, dist_entropy, actor_grad_norm, imp_weights, \
+                   penalty_loss, penalty_grad_norm = self.ppo_update(sample, update_actor)
 
                 train_info['value_loss'] += value_loss.item()
                 train_info['policy_loss'] += policy_loss.item()
@@ -321,11 +403,14 @@ class R_MAPPO():
                 train_info['actor_grad_norm'] += actor_grad_norm
                 train_info['critic_grad_norm'] += critic_grad_norm
                 train_info['ratio'] += imp_weights.mean()
+                
 
         num_updates = self.ppo_epoch * self.num_mini_batch
 
         for k in train_info.keys():
             train_info[k] /= num_updates
+        self.policy.hard_update_policy()
+        self.policy.hard_update_critic()
  
         return train_info
 
@@ -334,8 +419,10 @@ class R_MAPPO():
         # This is important for certain types of layers like Dropout and BatchNorm,
         self.policy.actor.train()
         self.policy.critic.train()
+        self.policy.penalty.train()
 
     def prep_rollout(self):
         # eval mode
         self.policy.actor.eval()
         self.policy.critic.eval()
+        self.policy.penalty.eval()

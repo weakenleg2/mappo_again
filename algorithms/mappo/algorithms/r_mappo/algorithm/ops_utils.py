@@ -9,6 +9,7 @@ import numpy as np
 
 from algorithms.mappo.algorithms.r_mappo.algorithm.vae import LinearVAE
 import wandb
+import math
 
 # Initialize a new run
 # wandb.init(project="vae_classification", entity="2017920898")
@@ -114,7 +115,6 @@ def compute_clusters(rb, agent_count, batch_size, clusters, lr, epochs, z_featur
         train_epoch_loss = fit(model, encode_tensor, extra_decoder_tensor, reconstruct_tensor, batch_size)
         train_loss.append(train_epoch_loss)
 
-    print(f"Train Loss: {train_epoch_loss:.6f}")
     # check? what is agent count?
     x = torch.eye(agent_count).to(device)
     # This step is crucial as it provides 

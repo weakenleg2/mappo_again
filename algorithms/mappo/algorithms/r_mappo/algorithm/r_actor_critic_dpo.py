@@ -37,13 +37,13 @@ class R_Actor(nn.Module):
         
         #Hack since we're only using MPE
         base = MLPBase
-        self.base_ctrl = base(args, self.hidden_size, obs_shape)
+        self.base_ctrl = base(args, self.hidden_size, obs_shape, None, None)
         # print(obs_shape)
-        self.base_com = base(args, self.hidden_size, obs_shape)
+        # self.base_com = base(args, self.hidden_size, obs_shape)
 
         if self._use_naive_recurrent_policy or self._use_recurrent_policy:
             self.ctrl_rnn = RNNLayer(self.hidden_size, self.hidden_size, self._recurrent_N, self._use_orthogonal)
-            self.com_rnn = RNNLayer(self.hidden_size, self.hidden_size, self._recurrent_N, self._use_orthogonal)
+            # self.com_rnn = RNNLayer(self.hidden_size, self.hidden_size, self._recurrent_N, self._use_orthogonal)
         # print("action_space",action_space)
         self.act_ctrl = ACTLayer(action_space[0], self.hidden_size, self._use_orthogonal, self._gain)
         self.act_com = ACTLayer(action_space[1], self.hidden_size, self._use_orthogonal, self._gain)
@@ -66,29 +66,31 @@ class R_Actor(nn.Module):
         """
         obs = check(obs).to(**self.tpdv)
         rnn_states = check(rnn_states).to(**self.tpdv)
-        rnn_states = rnn_states.split(int(self.hidden_size), dim=-1)
+        # rnn_states = rnn_states.split(int(self.hidden_size), dim=-1)
         masks = check(masks).to(**self.tpdv)
         if available_actions is not None:
             available_actions = check(available_actions).to(**self.tpdv)
         # print(obs.shape)
 
         control_features = self.base_ctrl(obs)
-        communication_features = self.base_com(obs)
+        # communication_features = self.base_com(obs)
 
         if self._use_naive_recurrent_policy or self._use_recurrent_policy:
-            control_features, ctrl_rnn_states = self.ctrl_rnn(control_features, rnn_states[0], masks)
-            communication_features, com_rnn_states = self.com_rnn(communication_features, rnn_states[1], masks)
-            rnn_states = torch.cat((ctrl_rnn_states, com_rnn_states), dim=-1)
+            control_features, rnn_states = self.ctrl_rnn(control_features, rnn_states, masks)
+            # control_features, ctrl_rnn_states = self.ctrl_rnn(control_features, rnn_states[0], masks)
+            # communication_features, com_rnn_states = self.com_rnn(communication_features, rnn_states[1], masks)
+            # rnn_states = torch.cat((ctrl_rnn_states, com_rnn_states), dim=-1)
         else:
             rnn_states = torch.cat((rnn_states[0], rnn_states[1]), dim=-1)
-        
+        # print("two features shape",control_features.shape,communication_features.shape)
         ctrl_actions, ctrl_action_log_probs = self.act_ctrl(control_features, available_actions, deterministic)
-        com_actions, com_action_log_probs = self.act_com(communication_features, available_actions, deterministic)
-        
+        # com_actions, com_action_log_probs = self.act_com(communication_features, available_actions, deterministic)
+        com_actions, com_action_log_probs = self.act_com(control_features, available_actions, deterministic)
+
         actions = torch.cat((ctrl_actions, com_actions), dim=-1)
         # print(actions.shape)
         action_log_probs = torch.cat((ctrl_action_log_probs, com_action_log_probs), dim=-1)
-
+        # print("controlfeatures",control_features.shape)
         return actions, action_log_probs, rnn_states
 
     def evaluate_actions(self, obs, rnn_states, action, masks, available_actions=None, active_masks=None):
@@ -107,7 +109,7 @@ class R_Actor(nn.Module):
         """
         obs = check(obs).to(**self.tpdv)
         rnn_states = check(rnn_states).to(**self.tpdv)
-        rnn_states = rnn_states.split(int(self.hidden_size), dim=-1)
+        # rnn_states = rnn_states.split(int(self.hidden_size), dim=-1)
         action = check(action).to(**self.tpdv)
         masks = check(masks).to(**self.tpdv)
         if available_actions is not None:
@@ -117,12 +119,14 @@ class R_Actor(nn.Module):
             active_masks = check(active_masks).to(**self.tpdv)
 
         control_features = self.base_ctrl(obs)
-        communication_features = self.base_com(obs)
+        # communication_features = self.base_com(obs)
 
         if self._use_naive_recurrent_policy or self._use_recurrent_policy:
-            control_features, ctrl_rnn_states = self.ctrl_rnn(control_features, rnn_states[0], masks)
-            communication_features, com_rnn_states = self.com_rnn(communication_features, rnn_states[1], masks)
-            rnn_states = torch.cat((ctrl_rnn_states, com_rnn_states), dim=-1)
+            control_features, rnn_states = self.ctrl_rnn(control_features, rnn_states, masks)
+
+            # control_features, ctrl_rnn_states = self.ctrl_rnn(control_features, rnn_states[0], masks)
+            # communication_features, com_rnn_states = self.com_rnn(communication_features, rnn_states[1], masks)
+            # rnn_states = torch.cat((ctrl_rnn_states, com_rnn_states), dim=-1)
         else:
             rnn_states = torch.cat((rnn_states[0], rnn_states[1]), dim=-1)
 
@@ -132,12 +136,16 @@ class R_Actor(nn.Module):
                                                                 active_masks=
                                                                 active_masks if self._use_policy_active_masks
                                                                 else None)
-
-        communication_log_probs, communication_dist_entropy = self.act_com.evaluate_actions(communication_features,
-                                                                action[:, -1:], available_actions,
-                                                                active_masks=
-                                                                active_masks if self._use_policy_active_masks
-                                                                else None)
+        communication_log_probs, communication_dist_entropy = self.act_com.evaluate_actions(control_features,
+                                                                        action[:, -1:], available_actions,
+                                                                        active_masks=
+                                                                        active_masks if self._use_policy_active_masks
+                                                                        else None)
+        # communication_log_probs, communication_dist_entropy = self.act_com.evaluate_actions(communication_features,
+        #                                                         action[:, -1:], available_actions,
+        #                                                         active_masks=
+        #                                                         active_masks if self._use_policy_active_masks
+        #                                                         else None)
 
         action_log_probs = torch.cat((control_log_probs, communication_log_probs), dim=-1)
         dist_entropy = control_dist_entropy + communication_dist_entropy
@@ -147,23 +155,23 @@ class R_Actor(nn.Module):
         
         obs = check(obs).to(**self.tpdv)
         rnn_states = check(rnn_states).to(**self.tpdv)
-        rnn_states = rnn_states.split(int(self.hidden_size), dim=-1)
+        # rnn_states = rnn_states.split(int(self.hidden_size), dim=-1)
         masks = check(masks).to(**self.tpdv)
         if available_actions is not None:
             available_actions = check(available_actions).to(**self.tpdv)
 
         control_features = self.base_ctrl(obs)
-        communication_features = self.base_com(obs)
+        # communication_features = self.base_com(obs)
 
         if self._use_naive_recurrent_policy or self._use_recurrent_policy:
-            control_features, ctrl_rnn_states = self.ctrl_rnn(control_features, rnn_states[0], masks)
-            communication_features, com_rnn_states = self.com_rnn(communication_features, rnn_states[1], masks)
-            rnn_states = torch.cat((ctrl_rnn_states, com_rnn_states), dim=-1)
+            control_features, rnn_states = self.ctrl_rnn(control_features, rnn_states, masks)
+            # communication_features, com_rnn_states = self.com_rnn(communication_features, rnn_states[1], masks)
+            # rnn_states = torch.cat((ctrl_rnn_states, com_rnn_states), dim=-1)
         else:
             rnn_states = torch.cat((rnn_states[0], rnn_states[1]), dim=-1)
 
         action_probs_ctrl = self.act_ctrl.get_probs(control_features,available_actions)
-        action_probs_comm = self.act_com.get_probs(communication_features,available_actions)
+        action_probs_comm = self.act_com.get_probs(control_features,available_actions)
         # print(action_probs_ctrl.shape,action_probs_comm.shape)
         action_probs = torch.cat((action_probs_ctrl,action_probs_comm), dim=-1)
         # print('action_probs = {}'.format(action_probs))
@@ -184,23 +192,27 @@ class R_Actor(nn.Module):
         """
         obs = check(obs).to(**self.tpdv)
         rnn_states = check(rnn_states).to(**self.tpdv)
-        rnn_states = rnn_states.split(int(self.hidden_size), dim=-1)
+        # rnn_states = rnn_states.split(int(self.hidden_size), dim=-1)
         masks = check(masks).to(**self.tpdv)
         if available_actions is not None:
             available_actions = check(available_actions).to(**self.tpdv)
 
         control_features = self.base_ctrl(obs)
-        communication_features = self.base_com(obs)
+        # communication_features = self.base_com(obs)
 
         if self._use_naive_recurrent_policy or self._use_recurrent_policy:
-            control_features, ctrl_rnn_states = self.ctrl_rnn(control_features, rnn_states[0], masks)
-            communication_features, com_rnn_states = self.com_rnn(communication_features, rnn_states[1], masks)
-            rnn_states = torch.cat((ctrl_rnn_states, com_rnn_states), dim=-1)
+            control_features, rnn_states = self.ctrl_rnn(control_features, rnn_states, masks)
+
+            # control_features, ctrl_rnn_states = self.ctrl_rnn(control_features, rnn_states[0], masks)
+            # communication_features, com_rnn_states = self.com_rnn(communication_features, rnn_states[1], masks)
+            # rnn_states = torch.cat((ctrl_rnn_states, com_rnn_states), dim=-1)
         else:
             rnn_states = torch.cat((rnn_states[0], rnn_states[1]), dim=-1)
 
         action_dist_ctrl = self.act_ctrl.get_dist(control_features,available_actions)
-        action_dist_comm = self.act_com.get_dist(communication_features,available_actions)
+        action_dist_comm = self.act_com.get_dist(control_features,available_actions)
+
+        # action_dist_comm = self.act_com.get_dist(communication_features,available_actions)
         # print(action_probs_ctrl.shape,action_probs_comm.shape)
         # print('action_probs = {}'.format(action_probs))
         return action_dist_ctrl, action_dist_comm
@@ -229,8 +241,8 @@ class R_Critic(nn.Module):
         # print("cent_obs_space1",cent_obs_space)
         cent_obs_shape = (flatdim(cent_obs_space),)
         # print("cent_obs_space2",cent_obs_space)
-        base = CNNBase if len(cent_obs_shape) == 3 else MLPBase
-        self.base = base(args, self.hidden_size, cent_obs_shape)
+        base = MLPBase
+        self.base = base(args, self.hidden_size, cent_obs_shape,None, None)
 
         if self._use_naive_recurrent_policy or self._use_recurrent_policy:
             self.rnn = RNNLayer(self.hidden_size, self.hidden_size, self._recurrent_N, self._use_orthogonal)
@@ -238,10 +250,10 @@ class R_Critic(nn.Module):
         def init_(m):
             return init(m, init_method, lambda x: nn.init.constant_(x, 0))
 
-        # if self._use_popart:
-        #     self.v_out = init_(PopArt(self.hidden_size, 1, device=device))
-        # else:
-        self.v_out = init_(nn.Linear(self.hidden_size, 1))
+        if self._use_popart:
+            self.v_out = init_(PopArt(self.hidden_size, 1, device=device))
+        else:
+            self.v_out = init_(nn.Linear(self.hidden_size, 1))
 
         self.to(device)
 
@@ -258,6 +270,9 @@ class R_Critic(nn.Module):
         cent_obs = check(cent_obs).to(**self.tpdv)
         rnn_states = check(rnn_states).to(**self.tpdv)
         masks = check(masks).to(**self.tpdv)
+        # actions = check(actions).to(**self.tpdv)
+        # consider rnn_states?
+        # print(cent_obs.shape,features.shape,actions.shape)
 
         critic_features = self.base(cent_obs)
         if self._use_naive_recurrent_policy or self._use_recurrent_policy:
@@ -265,3 +280,49 @@ class R_Critic(nn.Module):
         values = self.v_out(critic_features)
 
         return values, rnn_states
+    
+class Penalty(nn.Module):
+    
+    def __init__(self, args, cent_obs_space, device=torch.device("cpu")):
+        super(Penalty, self).__init__()
+        self.hidden_size = args.critic_hidden_size
+        self._use_orthogonal = args.use_orthogonal
+        self._use_naive_recurrent_policy = args.use_naive_recurrent_policy
+        self._use_recurrent_policy = args.use_recurrent_policy
+        self._recurrent_N = args.recurrent_N
+        self._use_popart = args.use_popart
+        self.tpdv = dict(dtype=torch.float32, device=device)
+        init_method = [nn.init.xavier_uniform_, nn.init.orthogonal_][self._use_orthogonal]
+        # print("cent_obs_space1",cent_obs_space)
+        cent_obs_shape = (flatdim(cent_obs_space),)
+        # print("cent_obs_space2",cent_obs_space)
+        base = MLPBase
+        self.base = base(args, self.hidden_size, cent_obs_shape, None, None)
+
+        if self._use_naive_recurrent_policy or self._use_recurrent_policy:
+            self.rnn = RNNLayer(self.hidden_size, self.hidden_size, self._recurrent_N, self._use_orthogonal)
+
+        def init_(m):
+            return init(m, init_method, lambda x: nn.init.constant_(x, 0))
+
+        if self._use_popart:
+            self.v_out = init_(PopArt(self.hidden_size, 1, device=device))
+        else:
+            self.v_out = init_(nn.Linear(self.hidden_size, 1))
+
+        self.to(device)
+
+    def forward(self, cent_obs, rnn_states, masks):
+        
+        cent_obs = check(cent_obs).to(**self.tpdv)
+        rnn_states = check(rnn_states).to(**self.tpdv)
+        masks = check(masks).to(**self.tpdv)
+
+        penalty_features = self.base(cent_obs)
+        if self._use_naive_recurrent_policy or self._use_recurrent_policy:
+            penalty_features, rnn_states = self.rnn(penalty_features, rnn_states, masks)
+        lambda_penalty = torch.nn.functional.relu(self.v_out(penalty_features))
+        lambda_penalty = torch.clamp(lambda_penalty,min=0,max=1)
+        # print("lambda",lambda_penalty)maybe 0.05?
+        return lambda_penalty, rnn_states
+

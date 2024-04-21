@@ -55,17 +55,12 @@ class MPERunner(Runner):
                 # print(actions_env)
 
                 obs, rewards, dones, infos = self.envs.step(actions_env)
-                # print("state",self.envs.state)
-                # print(self.envs.get_cycle_count)
-                # print("obs",type(obs))
-                # print("rewards",rewards)
-                # print("dones",dones)
-                # print("infos",infos)
 
                 obs = self.dict_to_tensor(obs)
                 # print(obs.shape)
                 rewards = self.dict_to_tensor(rewards, False)
                 rewards = np.expand_dims(rewards, -1)
+                # print("dones",dones)
 
                 data = obs, rewards, dones, infos, values, actions, action_log_probs, rnn_states, rnn_states_critic
                 
@@ -131,13 +126,7 @@ class MPERunner(Runner):
         obs = self.envs.reset()
         # print(obs.shape)
         obs = self.dict_to_tensor(obs)
-        # print("obs",obs)
-        # print("state",self.envs.state())
-        # print(obs.shape)
-
-        #last_actions = np.zeros(
-          #(self.n_rollout_threads, self.num_agents * (flatdim(self.envs.action_space('agent_0')) - 1)))
-        # if not self.use_centralized_V:
+        
         share_obs = []
         for o in obs:
             share_obs.append(list(chain(*o)))
@@ -156,9 +145,14 @@ class MPERunner(Runner):
                 # share_obs_2 = share_obs[:, (agent_id+1)*23:]
                 # print("obs2",share_obs_2.shape)
                 agent_obs = np.array(list(obs[:, agent_id]))
-                # print("last6",agent_obs_last_6.shape)
+                agent_obs1 = agent_obs[:, -1:]
+                agent_obs2 = agent_obs[:, 24:28]
+                # print(agent_obs1.shape,agent_obs2.shape)
+                agent_obsc = np.concatenate((agent_obs1, agent_obs2), axis=-1)
                 # Concatenate: first part + last 6 elements + second part
-                share_obs = np.concatenate((share_obs, agent_obs), axis=-1)
+                share_obs = np.concatenate((share_obs, agent_obsc), axis=-1)
+                # share_obs = np.concatenate((share_obs, (np.array(list(obs[:, agent_id]))[:, -6:])), axis=-1)
+                # print("share_obs",share_obs.shape)
 
                 # print("share_obs",share_obs.shape)
             self.buffer[agent_id].share_obs[0] = share_obs.copy()
@@ -259,9 +253,11 @@ class MPERunner(Runner):
                 
                 # Extract the last 6 elements from the current agent's observation and reshape if necessary
                 agent_obs = np.array(list(obs[:, agent_id]))
-                
+                agent_obs1 = agent_obs[:, -1:]
+                agent_obs2 = agent_obs[:, 24:28]
+                agent_obsc = np.concatenate((agent_obs1, agent_obs2), axis=-1)
                 # Concatenate: first part + last 6 elements + second part
-                share_obs = np.concatenate((share_obs, agent_obs), axis=-1)
+                share_obs = np.concatenate((share_obs, agent_obsc), axis=-1)
 
             self.buffer[agent_id].insert(share_obs,
                                          np.array(list(obs[:, agent_id])),

@@ -15,7 +15,8 @@ from Box2D.b2 import (
 from gymnasium import spaces
 from gymnasium.utils import seeding
 from pygame import gfxdraw
-from custom_envs.multiwalker_communicate.multiwalker_c._utils import Agent
+
+from pettingzoo.sisl._utils import Agent
 
 MAX_AGENTS = 40
 
@@ -93,8 +94,6 @@ class BipedalWalker(Agent):
     def __init__(
         self,
         world,
-        full_comm,
-        
         init_x=TERRAIN_STEP * TERRAIN_STARTPAD / 2,
         init_y=TERRAIN_HEIGHT + 2 * LEG_H,
         n_walkers=2,
@@ -107,10 +106,7 @@ class BipedalWalker(Agent):
         self.init_y = init_y
         self.walker_id = -int(self.init_x)
         self._seed(seed)
-        self.comm_signal = 0
-        self.full_comm = full_comm
-        self.communication_count = 0
-        
+
     def _destroy(self):
         if not self.hull:
             return
@@ -129,9 +125,6 @@ class BipedalWalker(Agent):
         self._destroy()
         init_x = self.init_x
         init_y = self.init_y
-        self.comm_signal = 0
-        # self.walker_message = np.zeros(11)
-        self.communication_count = 0
         self.hull = self.world.CreateDynamicBody(
             position=(init_x, init_y),
             fixtures=fixtureDef(
@@ -237,12 +230,7 @@ class BipedalWalker(Agent):
         self.joints[3].maxMotorTorque = float(
             MOTORS_TORQUE * np.clip(np.abs(action[3]), 0, 1)
         )
-        if self.full_comm:
-            # random value, means random skip
-            # naive
-            self.comm_signal = 1
-        else:
-            self.comm_signal = action[4]
+
     def get_observation(self):
         pos = self.hull.position
         vel = self.hull.linearVelocity
@@ -255,7 +243,6 @@ class BipedalWalker(Agent):
                 pos[1] - math.cos(1.5 * i / 10.0) * LIDAR_RANGE,
             )
             self.world.RayCast(self.lidar[i], self.lidar[i].p1, self.lidar[i].p2)
-        # only position info, maybe including ground
 
         state = [
             # Normal angles up to 0.5 here, but sure more is possible.
@@ -276,14 +263,7 @@ class BipedalWalker(Agent):
             self.joints[3].speed / SPEED_KNEE,
             1.0 if self.legs[3].ground_contact else 0.0,
         ]
-        # if self.comm_signal>0:
-        #         self.walker_message = np.concatenate(([l_dis.fraction for l_dis in self.lidar],[0]))
-        #     # self.last_message = neighbor_obs
 
-        # else:
-        #     self.walker_message[-1]+=1
-        # obs.append(np.concatenate([walker_obs, self.last_message]))
-        # state = np.concatenate([state,self.walker_message]) 
         state += [l_dis.fraction for l_dis in self.lidar]
         assert len(state) == 24
 
@@ -291,37 +271,19 @@ class BipedalWalker(Agent):
 
     @property
     def observation_space(self):
-        # 24 original obs (joints, etc), 2 displacement obs for each neighboring walker, 3 for package, 1 for timer
+        # 24 original obs (joints, etc), 2 displacement obs for each neighboring walker, 3 for package
         return spaces.Box(
             low=np.float32(-np.inf),
             high=np.float32(np.inf),
-            shape=(24 + 4 + 3 + 1,),
-            dtype=np.float32,
-        )
-    @property
-    def state_space(self):
-        # Define the state space
-        # This is just an example. Modify according to your environment's state properties
-        return spaces.Box(
-            low=np.float32(-np.inf),
-            high=np.float32(np.inf),
-            shape=(25 + 4 + 3 + 1,),
+            shape=(24 + 4 + 3,),
             dtype=np.float32,
         )
 
     @property
     def action_space(self):
-        # return spaces.Box(
-        #     low=np.float32(-1), high=np.float32(1), shape=(4,), dtype=np.float32
-        # )
-        return spaces.Tuple([
-                spaces.Box(
+        return spaces.Box(
             low=np.float32(-1), high=np.float32(1), shape=(4,), dtype=np.float32
-        ),
-                spaces.Discrete(2),
-                ]
-            )
-    
+        )
 
 
 class MultiWalkerEnv:
@@ -337,15 +299,10 @@ class MultiWalkerEnv:
         forward_reward=1.0,
         terminate_reward=-100.0,
         fall_reward=-10.0,
-        shared_reward=False,
+        shared_reward=True,
         terminate_on_fall=True,
         remove_on_fall=True,
         terrain_length=TERRAIN_LENGTH,
-        penalty_ratio = 0.5,
-        full_comm=True,
-        delay = 10,
-        packet_drop_prob=0.1,
-        bandwidth_limit = 10,
         max_cycles=500,
         render_mode=None,
     ):
@@ -369,61 +326,20 @@ class MultiWalkerEnv:
         self.fall_reward = fall_reward
         self.terminate_reward = terminate_reward
         self.terminate_on_fall = terminate_on_fall
-        # print(self.terminate_on_fall)
         self.local_ratio = 1 - shared_reward
         self.remove_on_fall = remove_on_fall
         self.terrain_length = terrain_length
         self.seed_val = None
-        self.full_comm = full_comm
-        # print(self.full_comm)
-        self.penalty_ratio = penalty_ratio
-        self.seed()
+        self._seed()
         self.setup()
         self.screen = None
-        self.isopen = True
-        self.agent_list = list(range(self.n_walkers))
         self.last_rewards = [0 for _ in range(self.n_walkers)]
         self.last_dones = [False for _ in range(self.n_walkers)]
         self.last_obs = [None for _ in range(self.n_walkers)]
         self.max_cycles = max_cycles
         self.render_mode = render_mode
         self.frames = 0
-        self.delay = delay
-        self.packet_drop_prob = packet_drop_prob
-        self.bandwidth_limit = bandwidth_limit
-        self.current_round_message_count = 0
 
-        # print(self.delay)
-        
-        self.last_message = np.zeros(8)
-        self.message_buffer = []
-        
-    def send_message(self, message, target_agent_id, delay):
-        self.current_round_message_count += 1
-        
-        if np.random.rand() >= self.packet_drop_prob:
-
-            current_step = self.get_cycle_count()
-            deliver_at_step = current_step + delay
-            self.message_buffer.append((message, deliver_at_step, target_agent_id))
-            
-        if len(self.message_buffer) > (delay+5):
-            self.message_buffer.pop(0)
-
-    
-    def process_message_buffer(self, agent_id, current_step):
-        received_message = np.zeros(8)
-        new_buffer = []
-        for message, deliver_at_step, target_agent_id in self.message_buffer:
-            if deliver_at_step <= current_step and target_agent_id == agent_id:
-                received_message = message  # Last message for this agent in time window
-            else:
-                new_buffer.append((message, deliver_at_step, target_agent_id))
-        self.message_buffer = new_buffer
-        return received_message
-
-    def get_cycle_count(self):
-        return self.frames
     def get_param_values(self):
         return self.__dict__
 
@@ -439,18 +355,22 @@ class MultiWalkerEnv:
             init_x + WALKER_SEPERATION * i * TERRAIN_STEP for i in range(self.n_walkers)
         ]
         self.walkers = [
-            BipedalWalker(self.world,self.full_comm,init_x=sx, init_y=init_y, seed=self.seed_val)
+            BipedalWalker(self.world, init_x=sx, init_y=init_y, seed=self.seed_val)
             for sx in self.start_x
         ]
-        self.num_agents = len(self.walkers)
         self.observation_space = [agent.observation_space for agent in self.walkers]
         self.action_space = [agent.action_space for agent in self.walkers]
-        self.state_space = [agent.state_space for agent in self.walkers]
+        self.state_space = spaces.Box(
+            low=-np.float32(np.inf),
+            high=+np.float32(np.inf),
+            shape=(
+                self.n_walkers * 24 + 3,
+            ),  # 24 is the observation space of each walker, 3 is the package observation space
+            dtype=np.float32,
+        )
 
         self.package_scale = self.n_walkers / 1.75
         self.package_length = PACKAGE_LENGTH / SCALE * self.package_scale
-
-        self.total_agents = self.n_walkers
 
         self.prev_shaping = np.zeros(self.n_walkers)
         self.prev_package_shaping = 0.0
@@ -459,7 +379,7 @@ class MultiWalkerEnv:
     def agents(self):
         return self.walkers
 
-    def seed(self, seed=None):
+    def _seed(self, seed=None):
         self.np_random, seed_ = seeding.np_random(seed)
         self.seed_val = seed_
         for walker in getattr(self, "walkers", []):
@@ -482,12 +402,7 @@ class MultiWalkerEnv:
     def close(self):
         if self.screen is not None:
             pygame.quit()
-            self.isopen = False
-    def get_communication_counts(self):
-        # Returns a list or dictionary of communication counts for each agent
-        # Example implementation (you would need to implement the logic to track counts)
-        # print([walker.communication_count for walker in self.walkers])
-        return [walker.communication_count for walker in self.walkers]
+            self.screen = None
 
     def reset(self):
         self.setup()
@@ -499,10 +414,6 @@ class MultiWalkerEnv:
         self.prev_package_shaping = 0.0
         self.scroll = 0.0
         self.lidar_render = 0
-        self.last_message = np.zeros(8)
-        self.message_buffer = []
-        self.current_round_message_count = 0
-        
 
         self._generate_package()
         self._generate_terrain(self.hardcore)
@@ -519,11 +430,7 @@ class MultiWalkerEnv:
         r, d, o = self.scroll_subroutine()
         self.last_rewards = [0 for _ in range(self.n_walkers)]
         self.last_dones = [False for _ in range(self.n_walkers)]
-        for i in range(self.n_walkers):
-            # message = self.process_message_buffer(i,current_step = current_step)
-            # print("message",message)
-            # self.last_obs[i] = np.concatenate([mod_obs[i], message])
-            self.last_obs[i] = np.concatenate([o[i],np.zeros(8)])
+        self.last_obs = o
         self.frames = 0
 
         return self.observe(0)
@@ -543,7 +450,6 @@ class MultiWalkerEnv:
             xpos[i] = x
 
             walker_obs = self.walkers[i].get_observation()
-            # ###we can consider observation of lidar here
             neighbor_obs = []
             for j in [i - 1, i + 1]:
                 # if no neighbor (for edge walkers)
@@ -562,20 +468,9 @@ class MultiWalkerEnv:
             neighbor_obs.append(
                 self.np_random.normal(self.package.angle, self.angle_noise)
             )
-            assert len(self.last_message) == (len(neighbor_obs)+1)
-            if self.walkers[i].comm_signal>0:
-                self.last_message = np.concatenate((neighbor_obs,[0]))
-            # self.last_message = neighbor_obs
-
-            else:
-                self.last_message[-1]+=1
-            self.send_message(self.last_message,i,delay=self.delay)
-            
-            # obs.append(np.concatenate([walker_obs, self.last_message]))
-            obs.append(walker_obs)
+            obs.append(np.array(walker_obs + neighbor_obs))
 
             shaping = -5.0 * abs(walker_obs[0])
-
             rewards[i] = shaping - self.prev_shaping[i]
             self.prev_shaping[i] = shaping
 
@@ -615,42 +510,19 @@ class MultiWalkerEnv:
 
     def step(self, action, agent_id, is_last):
         # action is array of size 4
-        # action = action.reshape(4)
+        action = action.reshape(4)
         assert self.walkers[agent_id].hull is not None, agent_id
         self.walkers[agent_id].apply_action(action)
         if is_last:
             self.world.Step(1.0 / FPS, 6 * 30, 2 * 30)
-            current_step = self.get_cycle_count()
             rewards, done, mod_obs = self.scroll_subroutine()
-            
-            # print("mode",mod_obs)
-
-            for i in range(self.n_walkers):
-                if i >= self.current_round_message_count:
-                    message = np.zeros(8)
-                else:
-                    message = self.process_message_buffer(i,current_step = current_step)
-                # print("message",message)
-                self.last_obs[i] = np.concatenate([mod_obs[i], message])
-            for i in range(self.n_walkers):
-                # print(self.walkers[i].comm_signal)
-                if self.walkers[i].comm_signal>0:
-                    # paramter tuning
-                    # if rewards[i]<0:
-                    # print(rewards[i])
-                    rewards[i] = rewards[i]-self.penalty_ratio
-                    # need to be tuned
-                    # else:
-                    #     rewards[i] = rewards[i]*(1-self.penalty_ratio)
-                    self.walkers[i].communication_count += 1
-            self.current_round_message_count = 0     
+            self.last_obs = mod_obs
             global_reward = rewards.mean()
             local_reward = rewards * self.local_ratio
             self.last_rewards = (
                 global_reward * (1.0 - self.local_ratio)
                 + local_reward * self.local_ratio
             )
-            # the reward is always global
             self.last_dones = done
             self.frames = self.frames + 1
 
@@ -666,7 +538,7 @@ class MultiWalkerEnv:
         )
 
     def get_last_dones(self):
-        return dict(zip(self.agent_list, self.last_dones))
+        return dict(zip(list(range(self.n_walkers)), self.last_dones))
 
     def get_last_obs(self):
         return dict(
@@ -680,3 +552,349 @@ class MultiWalkerEnv:
         o = self.last_obs[agent]
         o = np.array(o, dtype=np.float32)
         return o
+
+    def state(self):
+        all_walker_obs = self.get_last_obs()
+        all_walker_obs = np.array(list(all_walker_obs.values())).flatten()
+        package_obs = np.array(
+            [
+                self.package.position.x,
+                self.package.position.y,
+                self.package.angle,
+            ]
+        )
+        global_state = np.concatenate((all_walker_obs, package_obs)).astype(np.float32)
+
+        return global_state
+
+    def render(self, close=False):
+        if close:
+            self.close()
+            return
+
+        offset = 200  # compensates for the negative coordinates
+        render_scale = SCALE / self.package_scale / 0.75
+        if self.screen is None:
+            pygame.init()
+            self.screen = pygame.display.set_mode((VIEWPORT_W, VIEWPORT_H))
+            pygame.display.set_caption("Multiwalker")
+
+        self.surf = pygame.Surface(
+            (VIEWPORT_W + self.scroll * render_scale + offset, VIEWPORT_H)
+        )
+
+        pygame.draw.polygon(
+            self.surf,
+            color=(215, 215, 255),
+            points=[
+                (self.scroll * render_scale + offset, 0),
+                (self.scroll * render_scale + VIEWPORT_W + offset, 0),
+                (self.scroll * render_scale + VIEWPORT_W + offset, VIEWPORT_H),
+                (self.scroll * render_scale + offset, VIEWPORT_H),
+            ],
+        )
+
+        for poly, x1, x2 in self.cloud_poly:
+            if x2 < self.scroll / 2:
+                continue
+            if x1 > self.scroll / 2 + VIEWPORT_W / SCALE * self.package_scale:
+                continue
+            gfxdraw.aapolygon(
+                self.surf,
+                [
+                    (
+                        p[0] * render_scale + self.scroll * render_scale / 2 + offset,
+                        p[1] * render_scale,
+                    )
+                    for p in poly
+                ],
+                (255, 255, 255),
+            )
+            gfxdraw.filled_polygon(
+                self.surf,
+                [
+                    (
+                        p[0] * render_scale + self.scroll * render_scale / 2 + offset,
+                        p[1] * render_scale,
+                    )
+                    for p in poly
+                ],
+                (255, 255, 255),
+            )
+
+        for poly, color in self.terrain_poly:
+            if poly[1][0] < self.scroll:
+                continue
+            if poly[0][0] > self.scroll + VIEWPORT_W / SCALE * self.package_scale:
+                continue
+            scaled_poly = []
+            for coord in poly:
+                scaled_poly.append(
+                    [coord[0] * render_scale + offset, coord[1] * render_scale]
+                )
+            gfxdraw.aapolygon(self.surf, scaled_poly, color)
+            gfxdraw.filled_polygon(self.surf, scaled_poly, color)
+
+        self.lidar_render = (self.lidar_render + 1) % 100
+        i = self.lidar_render
+        for walker in self.walkers:
+            if i < 2 * len(walker.lidar):
+                l_dis = (
+                    walker.lidar[i]
+                    if i < len(walker.lidar)
+                    else walker.lidar[len(walker.lidar) - i - 1]
+                )
+                pygame.draw.line(
+                    self.surf,
+                    color=(255, 0, 0),
+                    start_pos=(
+                        l_dis.p1[0] * render_scale + offset,
+                        l_dis.p1[1] * render_scale,
+                    ),
+                    end_pos=(
+                        l_dis.p2[0] * render_scale + offset,
+                        l_dis.p2[1] * render_scale,
+                    ),
+                    width=1,
+                )
+
+        for obj in self.drawlist:
+            for f in obj.fixtures:
+                trans = f.body.transform
+                if type(f.shape) is circleShape:
+                    pygame.draw.circle(
+                        self.surf,
+                        color=obj.color1,
+                        center=trans * f.shape.pos * render_scale + offset,
+                        radius=f.shape.radius * render_scale,
+                    )
+                    pygame.draw.circle(
+                        self.surf,
+                        color=obj.color2,
+                        center=trans * f.shape.pos * render_scale + offset,
+                        radius=f.shape.radius * render_scale,
+                    )
+                else:
+                    path = [trans * v * render_scale for v in f.shape.vertices]
+                    path = [[c[0] + offset, c[1]] for c in path]
+                    if len(path) > 2:
+                        gfxdraw.aapolygon(self.surf, path, obj.color1)
+                        gfxdraw.filled_polygon(self.surf, path, obj.color1)
+                        path.append(path[0])
+                        gfxdraw.aapolygon(self.surf, path, obj.color2)
+                    else:
+                        pygame.draw.aaline(
+                            self.surf,
+                            start_pos=path[0],
+                            end_pos=path[1],
+                            color=obj.color2,
+                        )
+
+        flagy1 = TERRAIN_HEIGHT * render_scale
+        flagy2 = flagy1 + 50 * render_scale / SCALE
+        x = TERRAIN_STEP * 3 * render_scale + offset
+        pygame.draw.aaline(
+            self.surf, color=(0, 0, 0), start_pos=(x, flagy1), end_pos=(x, flagy2)
+        )
+
+        f = [
+            (x, flagy2),
+            (x, flagy2 - 10 * render_scale / SCALE),
+            (x + 25 * render_scale / SCALE, flagy2 - 5 * render_scale / SCALE),
+        ]
+        pygame.draw.polygon(self.surf, color=(230, 51, 0), points=f)
+        pygame.draw.lines(
+            self.surf, color=(0, 0, 0), points=f + [f[0]], width=1, closed=False
+        )
+
+        self.surf = pygame.transform.flip(self.surf, False, True)
+        self.screen.blit(self.surf, (-self.scroll * render_scale - offset, 0))
+        if self.render_mode == "human":
+            pygame.event.pump()
+            pygame.display.update()
+        elif self.render_mode == "rgb_array":
+            return np.transpose(
+                np.array(pygame.surfarray.pixels3d(self.screen)), axes=(1, 0, 2)
+            )
+
+    def _generate_package(self):
+        init_x = np.mean(self.start_x)
+        init_y = TERRAIN_HEIGHT + 3 * LEG_H
+        self.package = self.world.CreateDynamicBody(
+            position=(init_x, init_y),
+            fixtures=fixtureDef(
+                shape=polygonShape(
+                    vertices=[
+                        (x * self.package_scale / SCALE, y / SCALE)
+                        for x, y in PACKAGE_POLY
+                    ]
+                ),
+                density=1.0,
+                friction=0.5,
+                categoryBits=0x004,
+                # maskBits=0x001,  # collide only with ground
+                restitution=0.0,
+            ),  # 0.99 bouncy
+        )
+        self.package.color1 = (127, 102, 229)
+        self.package.color2 = (76, 76, 127)
+
+    def _generate_terrain(self, hardcore):
+        GRASS, STUMP, STAIRS, PIT, _STATES_ = range(5)
+        state = GRASS
+        velocity = 0.0
+        y = TERRAIN_HEIGHT
+        counter = TERRAIN_STARTPAD
+        oneshot = False
+        self.terrain = []
+        self.terrain_x = []
+        self.terrain_y = []
+        for i in range(self.terrain_length):
+            x = i * TERRAIN_STEP
+            self.terrain_x.append(x)
+
+            if state == GRASS and not oneshot:
+                velocity = 0.8 * velocity + 0.01 * np.sign(TERRAIN_HEIGHT - y)
+                if i > TERRAIN_STARTPAD:
+                    velocity += self.np_random.uniform(-1, 1) / SCALE
+                y += velocity
+
+            elif state == PIT and oneshot:
+                counter = self.np_random.integers(3, 5)
+                poly = [
+                    (x, y),
+                    (x + TERRAIN_STEP, y),
+                    (x + TERRAIN_STEP, y - 4 * TERRAIN_STEP),
+                    (x, y - 4 * TERRAIN_STEP),
+                ]
+                t = self.world.CreateStaticBody(
+                    fixtures=fixtureDef(
+                        shape=polygonShape(vertices=poly), friction=FRICTION
+                    )
+                )
+                t.color1, t.color2 = (255, 255, 255), (153, 153, 153)
+                self.terrain.append(t)
+                t = self.world.CreateStaticBody(
+                    fixtures=fixtureDef(
+                        shape=polygonShape(
+                            vertices=[
+                                (p[0] + TERRAIN_STEP * counter, p[1]) for p in poly
+                            ]
+                        ),
+                        friction=FRICTION,
+                    )
+                )
+                t.color1, t.color2 = (255, 255, 255), (153, 153, 153)
+                self.terrain.append(t)
+                counter += 2
+                original_y = y
+
+            elif state == PIT and not oneshot:
+                y = original_y
+                if counter > 1:
+                    y -= 4 * TERRAIN_STEP
+
+            elif state == STUMP and oneshot:
+                counter = self.np_random.integers(1, 3)
+                poly = [
+                    (x, y),
+                    (x + counter * TERRAIN_STEP, y),
+                    (x + counter * TERRAIN_STEP, y + counter * TERRAIN_STEP),
+                    (x, y + counter * TERRAIN_STEP),
+                ]
+                t = self.world.CreateStaticBody(
+                    fixtures=fixtureDef(
+                        shape=polygonShape(vertices=poly), friction=FRICTION
+                    )
+                )
+                t.color1, t.color2 = (255, 255, 255), (153, 153, 153)
+                self.terrain.append(t)
+
+            elif state == STAIRS and oneshot:
+                stair_height = +1 if self.np_random.random() > 0.5 else -1
+                stair_width = self.np_random.integers(4, 5)
+                stair_steps = self.np_random.integers(3, 5)
+                original_y = y
+                for s in range(stair_steps):
+                    poly = [
+                        (
+                            x + (s * stair_width) * TERRAIN_STEP,
+                            y + (s * stair_height) * TERRAIN_STEP,
+                        ),
+                        (
+                            x + ((1 + s) * stair_width) * TERRAIN_STEP,
+                            y + (s * stair_height) * TERRAIN_STEP,
+                        ),
+                        (
+                            x + ((1 + s) * stair_width) * TERRAIN_STEP,
+                            y + (-1 + s * stair_height) * TERRAIN_STEP,
+                        ),
+                        (
+                            x + (s * stair_width) * TERRAIN_STEP,
+                            y + (-1 + s * stair_height) * TERRAIN_STEP,
+                        ),
+                    ]
+                    t = self.world.CreateStaticBody(
+                        fixtures=fixtureDef(
+                            shape=polygonShape(vertices=poly), friction=FRICTION
+                        )
+                    )
+                    t.color1, t.color2 = (255, 255, 255), (153, 153, 153)
+                    self.terrain.append(t)
+                counter = stair_steps * stair_width
+
+            elif state == STAIRS and not oneshot:
+                s = stair_steps * stair_width - counter - stair_height
+                n = s / stair_width
+                y = original_y + (n * stair_height) * TERRAIN_STEP
+
+            oneshot = False
+            self.terrain_y.append(y)
+            counter -= 1
+            if counter == 0:
+                counter = self.np_random.integers(TERRAIN_GRASS / 2, TERRAIN_GRASS)
+                if state == GRASS and hardcore:
+                    state = self.np_random.integers(1, _STATES_)
+                    oneshot = True
+                else:
+                    state = GRASS
+                    oneshot = True
+
+        self.terrain_poly = []
+        for i in range(self.terrain_length - 1):
+            poly = [
+                (self.terrain_x[i], self.terrain_y[i]),
+                (self.terrain_x[i + 1], self.terrain_y[i + 1]),
+            ]
+            t = self.world.CreateStaticBody(
+                fixtures=fixtureDef(shape=edgeShape(vertices=poly), friction=FRICTION)
+            )
+            color = (76, 255 if i % 2 == 0 else 204, 76)
+            t.color1 = color
+            t.color2 = color
+            self.terrain.append(t)
+            color = (102, 153, 76)
+            poly += [(poly[1][0], 0), (poly[0][0], 0)]
+            self.terrain_poly.append((poly, color))
+        self.terrain.reverse()
+
+    def _generate_clouds(self):
+        # Sorry for the clouds, couldn't resist
+        self.cloud_poly = []
+        for i in range(self.terrain_length // 20):
+            x = self.np_random.uniform(0, self.terrain_length) * TERRAIN_STEP
+            y = VIEWPORT_H / SCALE * 3 / 4
+            poly = [
+                (
+                    x
+                    + 15 * TERRAIN_STEP * math.sin(3.14 * 2 * a / 5)
+                    + self.np_random.uniform(0, 5 * TERRAIN_STEP),
+                    y
+                    + 5 * TERRAIN_STEP * math.cos(3.14 * 2 * a / 5)
+                    + self.np_random.uniform(0, 5 * TERRAIN_STEP),
+                )
+                for a in range(5)
+            ]
+            x1 = min(p[0] for p in poly)
+            x2 = max(p[0] for p in poly)
+            self.cloud_poly.append((poly, x1, x2))

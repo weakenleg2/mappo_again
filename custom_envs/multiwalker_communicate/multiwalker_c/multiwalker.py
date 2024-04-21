@@ -222,10 +222,13 @@ class raw_env(AECEnv, EzPickle):
             communication_counts = self.env.get_communication_counts()
             # print(communication_counts)
             frames = self.env.get_cycle_count()
+            # break_limit = self.env.break_limit
             # print(frames)
             for agent in self.agents:
                 self.infos[agent]['comms'] = communication_counts[self.agent_name_mapping[agent]]
                 self.infos[agent]['frames'] = frames
+                # self.infos[agent]['break'] = break_limit
+
             for agent in self.rewards:
                 self.rewards[agent] = last_rewards[self.agent_name_mapping[agent]]
             for agent in self.terminations:

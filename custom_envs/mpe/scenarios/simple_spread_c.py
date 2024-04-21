@@ -68,12 +68,15 @@ class raw_env(SimpleEnv, EzPickle):
         full_comm=True,
         local_ratio=0.5,
         max_cycles=25,
+        delay = 10,
+        packet_drop_prob=0.1,
         continuous_actions=False,
         render_mode=None,
     ):
         EzPickle.__init__(
             self, N=N, penalty_ratio=penalty_ratio,  
             local_ratio=local_ratio, full_comm=full_comm,
+            delay = delay,packet_drop_prob=packet_drop_prob,
             max_cycles=max_cycles, continuous_actions=continuous_actions, 
             render_mode=render_mode
         )
@@ -81,7 +84,7 @@ class raw_env(SimpleEnv, EzPickle):
             0.0 <= local_ratio <= 1.0
         ), "local_ratio is a proportion. Must be between 0 and 1."
         scenario = Scenario()
-        world = scenario.make_world(N, penalty_ratio, full_comm)
+        world = scenario.make_world(N, penalty_ratio, full_comm, delay, packet_drop_prob)
         super().__init__(
             scenario=scenario,
             world=world,
@@ -96,21 +99,30 @@ env = make_env(raw_env)
 parallel_env = parallel_wrapper_fn(env)
 
 class Scenario(BaseScenario):
-    def action_callback(self, agent, _): 
+    def __init__(self):
+        super().__init__()
+        # self.current_time = 0
+        self.message_queue = []
+    def action_callback(self, agent, current_step, _): 
       #To test full comm
       if self.full_comm:
         agent.action.c = np.array([1, 0])
 
-      if agent.action.c[0] > agent.action.c[1]:
-        self.last_message[agent.name] = np.concatenate((agent.state.p_pos, [0]))
+      if agent.action.c[0] > agent.action.c[1] and np.random.rand() >= self.packet_drop_prob:
+        scheduled_time = current_step + self.delay
+        message_content = np.concatenate((agent.state.p_pos, [0]))
+        self.message_queue.append((scheduled_time, agent.name, message_content))
+        
+
         agent.color = np.array([0, 1, 0])
       else:
         agent.color = np.array([0.35, 0.35, 0.85])
         self.last_message[agent.name][-1] += 1
+        
       
       return agent.action
 
-    def make_world(self, N=3, penalty_ratio=0.5, full_comm=False):
+    def make_world(self, N=3, penalty_ratio=0.5, full_comm=False,delay = 2, packet_drop_prob=0.2):
         world = World()
         # set any world properties first
         world.dim_c = 2
@@ -123,6 +135,8 @@ class Scenario(BaseScenario):
         self.last_message = {}
         self.world_min = -1 - (0.1 * num_agents)
         self.world_max = 1 + (0.1 * num_agents)
+        self.packet_drop_prob = packet_drop_prob
+        self.delay = delay
 
         # add agents
         world.agents = [Agent() for i in range(num_agents)]
@@ -200,7 +214,8 @@ class Scenario(BaseScenario):
 
         #Add penalty for communication
         if global_reward and agent.action.c[0] > agent.action.c[1]:
-          rew += global_reward * self.penalty_ratio
+        # if agent.action.c[0] > agent.action.c[1]:
+          rew -= self.penalty_ratio
         return rew
 
     def global_reward(self, world):
@@ -212,8 +227,14 @@ class Scenario(BaseScenario):
             ]
             rew -= min(dists)
         return rew
+    def process_messages(self, current_step):
+        for i in range(len(self.message_queue) - 1, -1, -1):
+            scheduled_time, name, message = self.message_queue[i]
+            if scheduled_time == current_step:
+                self.last_message[name] = message
+                self.message_queue.pop(i)
 
-    def observation(self, agent, world):
+    def observation(self, agent, world,current_step):
         # get positions of all entities in this agent's reference frame
         entity_pos = []
         for entity in world.landmarks:  # world.entities:
@@ -221,21 +242,13 @@ class Scenario(BaseScenario):
         # communication of all other agents
         entity_pos = np.concatenate(entity_pos)
         comm = []
+        if current_step is not None:
+            self.process_messages(current_step)
         for other in world.agents:
             #com_flag = 0
             if other is agent:
                 continue
-
             message = self.last_message[other.name]
-            #else:
-                #message[-1] += 1
-
-            #self.last_message[other.name] = message
-            
-            #if other.action.c is not None and other.action.c[0] > other.action.c[1]:
-                #self.last_message[other.name] 
-                #com_flag = 1
-
             comm.append(message)
 
         comm = np.concatenate(comm)

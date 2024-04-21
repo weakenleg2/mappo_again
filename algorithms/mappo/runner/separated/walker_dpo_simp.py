@@ -38,7 +38,6 @@ class MPERunner(Runner):
         start = time.time()
         episodes = int(
             self.num_env_steps) // self.episode_length // self.n_rollout_threads
-
         for episode in range(episodes):
             if self.use_linear_lr_decay:
                 for agent_id in range(self.num_agents):
@@ -48,9 +47,9 @@ class MPERunner(Runner):
             tot_frames = 0
             for step in range(self.episode_length):
                 # Sample actions
-                values, actions, action_log_probs,log_probs, rnn_states, rnn_states_critic, actions_env = self.collect(
+                values, actions, action_log_probs, rnn_states, rnn_states_critic, actions_env, penalty_values, rnn_states_penalty = self.collect(
                     step)
-
+                # print("penalty_values",penalty_values.shape)
                 # Obser reward and next obs
                 # print(actions_env)
 
@@ -61,8 +60,13 @@ class MPERunner(Runner):
                 # print(obs.shape)
                 rewards = self.dict_to_tensor(rewards, False)
                 rewards = np.expand_dims(rewards, -1)
-
-                data = obs, rewards, dones, infos, values, actions, action_log_probs,log_probs, rnn_states, rnn_states_critic
+                # print(rewards.shape,values.shape)
+                communication_actions = actions[:, :, -1]
+                communication_mask = communication_actions == 1
+                communication_penalty = np.expand_dims(communication_mask, -1) * penalty_values
+                rewards = rewards - communication_penalty
+                # print("communication_penalty",communication_penalty)
+                data = obs, rewards, dones, infos, values, actions, action_log_probs, rnn_states, rnn_states_critic,penalty_values, rnn_states_penalty,  communication_penalty
                 
                 for info in infos:
                     for agent_info in info.values():
@@ -126,13 +130,7 @@ class MPERunner(Runner):
         obs = self.envs.reset()
         # print(obs.shape)
         obs = self.dict_to_tensor(obs)
-        # print("obs",obs)
-        # print("state",self.envs.state())
-        # print(obs.shape)
-
-        #last_actions = np.zeros(
-          #(self.n_rollout_threads, self.num_agents * (flatdim(self.envs.action_space('agent_0')) - 1)))
-        # if not self.use_centralized_V:
+        
         share_obs = []
         for o in obs:
             share_obs.append(list(chain(*o)))
@@ -168,9 +166,11 @@ class MPERunner(Runner):
         actions = []
         temp_actions_env = []
         action_log_probs = []
-        log_probs = []
+        # log_probs = []
         rnn_states = []
         rnn_states_critic = []
+        penalty_values = []
+        rnn_states_penalty = []
 
         for agent_id in range(self.num_agents):
             self.trainer[agent_id].prep_rollout()
@@ -180,11 +180,16 @@ class MPERunner(Runner):
                                                             self.buffer[agent_id].rnn_states[step],
                                                             self.buffer[agent_id].rnn_states_critic[step],
                                                             self.buffer[agent_id].masks[step])
-            log_prob = self.trainer[agent_id].policy.get_probs(self.buffer[agent_id].obs[step],
-                                                            self.buffer[agent_id].rnn_states[step],
-                                                            self.buffer[agent_id].masks[step])
+            # log_prob = self.trainer[agent_id].policy.get_probs(self.buffer[agent_id].obs[step],
+            #                                                 self.buffer[agent_id].rnn_states[step],
+            #                                                 self.buffer[agent_id].masks[step])
+            penalty_value,rnn_state_penalty = self.trainer[agent_id].policy.get_penalty(self.buffer[agent_id].share_obs[step],
+                                                                      self.buffer[agent_id].rnn_states_penalty[step],
+                                                                    self.buffer[agent_id].masks[step]
+                                                                      )
             # [agents, envs, dim]
             values.append(_t2n(value))
+            penalty_values.append(_t2n(penalty_value))
             action = _t2n(action)
             # rearrange action
             action_space = self.envs.action_space('agent_' + str(agent_id))
@@ -208,9 +213,10 @@ class MPERunner(Runner):
             temp_actions_env.append(action_env)
             # print(action.shape,action_log_prob.shape)
             action_log_probs.append(_t2n(action_log_prob))
-            log_probs.append(_t2n(log_prob))
+            # log_probs.append(_t2n(log_prob))
             rnn_states.append(_t2n(rnn_state))
             rnn_states_critic.append(_t2n(rnn_state_critic))
+            rnn_states_penalty.append(_t2n(rnn_state_penalty))
 
         # [envs, agents, dim]
         # print(temp_actions_env)
@@ -221,26 +227,34 @@ class MPERunner(Runner):
                 actions_env[j]['agent_' + str(i)] = thread_actions[j]
 
         values = np.array(values).transpose(1, 0, 2)
+        penalty_values = np.array(penalty_values).transpose(1, 0, 2)
         actions = np.array(actions).transpose(1, 0, 2)
         action_log_probs = np.array(action_log_probs).transpose(1, 0, 2)
-        log_probs = np.array(log_probs).transpose(1, 0, 2)
+        # log_probs = np.array(log_probs).transpose(1, 0, 2)
         rnn_states = np.array(rnn_states).transpose(1, 0, 2, 3)
         rnn_states_critic = np.array(rnn_states_critic).transpose(1, 0, 2, 3)
+        rnn_states_penalty = np.array(rnn_states_penalty).transpose(1, 0, 2, 3)
 
-        return values, actions, action_log_probs,log_probs, rnn_states, rnn_states_critic, actions_env
+        return values, actions, action_log_probs, rnn_states, rnn_states_critic, actions_env,\
+                penalty_values, rnn_states_penalty
 
     def insert(self, data):
-        obs, rewards, dones, infos, values, actions, action_log_probs,log_probs, rnn_states, rnn_states_critic = data
+        obs, rewards, dones, infos, values, actions, action_log_probs, rnn_states, rnn_states_critic, penalty_values, rnn_states_penalty,communication_penalty = data
         # print("log_probs",log_probs)
+        # rnn_states[dones == True] = np.zeros(
+        #     ((dones == True).sum(), self.recurrent_N, self.actor_hidden_size * 2), dtype=np.float32)
         rnn_states[dones == True] = np.zeros(
-            ((dones == True).sum(), self.recurrent_N, self.actor_hidden_size * 2), dtype=np.float32)
+            ((dones == True).sum(), self.recurrent_N, self.actor_hidden_size), dtype=np.float32)
         rnn_states_critic[dones == True] = np.zeros(
+            ((dones == True).sum(), self.recurrent_N, self.critic_hidden_size), dtype=np.float32)
+        rnn_states_penalty[dones == True] = np.zeros(
             ((dones == True).sum(), self.recurrent_N, self.critic_hidden_size), dtype=np.float32)
         masks = np.ones(
             (self.n_rollout_threads, self.num_agents, 1), dtype=np.float32)
         masks[dones == True] = np.zeros(
             ((dones == True).sum(), 1), dtype=np.float32)
-
+        # penalty_rewards = 
+        # penalty_reward = np.zeros_like(rewards, dtype=float)
         #merged_actions = actions.reshape(self.n_rollout_threads, self.num_agents * (flatdim(self.envs.action_space('agent_0')) - 1))
         share_obs = []
         for o in obs:
@@ -263,6 +277,7 @@ class MPERunner(Runner):
                 
                 # Concatenate: first part + last 6 elements + second part
                 share_obs = np.concatenate((share_obs, agent_obs), axis=-1)
+            # penalty_reward[actions[:, :, -1] == 1] = -self.all_args.com_ratio
 
             self.buffer[agent_id].insert(share_obs,
                                          np.array(list(obs[:, agent_id])),
@@ -270,7 +285,10 @@ class MPERunner(Runner):
                                          rnn_states_critic[:, agent_id],
                                          actions[:, agent_id],
                                          action_log_probs[:, agent_id],
-                                         log_probs[:, agent_id],
                                          values[:, agent_id],
                                          rewards[:, agent_id],
-                                         masks[:, agent_id])
+                                         masks[:, agent_id],
+                                         communication_penalty[:,agent_id],
+                                         rnn_states_penalty[:,agent_id],
+                                         penalty_values[:, agent_id]
+                                         )
