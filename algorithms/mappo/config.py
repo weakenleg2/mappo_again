@@ -183,7 +183,8 @@ def get_config():
     parser.add_argument("--use_obs_instead_of_state", action='store_true',
                         default=False, help="Whether to use global state or concatenated obs")
     parser.add_argument("--full_comm", action='store_true',default=False, help="if agents have full communication")
-    parser.add_argument("--com_ratio", type=float, default=0.05, help="Ratio for agent communication penalty,0.05 default for multiwalker,0.1 for simple spread")
+    parser.add_argument("--com_ratio", type=float, default=0.01, help="Ratio for agent communication penalty,0.05 default for multiwalker,0.1 for simple spread")
+    # multiwalker 0.05, spread 0.01
     parser.add_argument("--local_ratio", type=float, default=0.5, help="Ratio for agent rewards")
     parser.add_argument("--delay", type=int, default=2, help="delay frames.")
     parser.add_argument("--packet_drop_prob", type=int, default=0.2, help="drop prob")
@@ -269,9 +270,12 @@ def get_config():
                         help='ppo clip parameter (default: 0.2)')
     parser.add_argument("--num_mini_batch", type=int, default=1,
                         help='number of batches for ppo (default: 1)')
-    parser.add_argument("--entropy_coef", type=float, default=0.015,
+    parser.add_argument("--entropy_coef", type=float, default=0.04,
                         help='entropy term coefficient (default: 0.01)')
-    parser.add_argument("--entropyppo_coef", type=float, default=3e-3)
+    # multiwalker 0.015, spread 0.03?
+
+    parser.add_argument("--entropyppo_coef", type=float, default=0.04)
+    # multiwalker 3e-3, spread 0 as shown in MAPPO
     parser.add_argument("--value_loss_coef", type=float,
                         default=0.5, help='value loss coefficient (default: 0.5)')
     parser.add_argument("--policy_value_loss_coef", type=float,

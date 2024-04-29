@@ -104,8 +104,9 @@ class Runner(object):
             low=-np.float32(np.inf),
             high=+np.float32(np.inf),
             shape=(
-                self.envs.share_observation_space.shape[0]+self.envs.observation_space('agent_0').shape[0],
+                self.envs.observation_space('agent_0').shape[0]*self.num_agents,
             ),  # 24 is the observation space of each walker, 3 is the package observation space
+            # we use feature pruned here, add 5 loacl features
             dtype=np.float32,
             ) if self.use_centralized_V else self.envs.observation_space('agent_0')
             
@@ -131,8 +132,9 @@ class Runner(object):
             low=-np.float32(np.inf),
             high=+np.float32(np.inf),
             shape=(
-                self.envs.share_observation_space.shape[0]+self.envs.observation_space('agent_0').shape[0],
+                self.envs.observation_space('agent_0').shape[0]*self.num_agents,
             ),  # 24 is the observation space of each walker, 3 is the package observation space
+            # we use feature pruned here, add 5 loacl features
             dtype=np.float32,
             ) if self.use_centralized_V else self.envs.observation_space('agent_0')
             # buffer

@@ -7,7 +7,7 @@ from itertools import chain
 from gymnasium.spaces.utils import flatdim
 
 from algorithms.mappo.utils.util import update_linear_schedule
-from algorithms.mappo.runner.separated.base_hdpo_spread import Runner
+from algorithms.mappo.runner.separated.base_hdpo import Runner
 from algorithms.mappo.algorithms.r_mappo.algorithm.ops_utils import compute_clusters
 from collections import Counter
 def _t2n(x):
@@ -145,14 +145,13 @@ class MPERunner(Runner):
                 communication_actions = actions[:, :, -1]
                 communication_mask = communication_actions == 1
                 communication_penalty = np.expand_dims(communication_mask, -1) * penalty_values
-                rewards = rewards - communication_penalty
+                rewards = rewards - communication_penalty*0.05
+                rewards = rewards
                 # print("communication_penalty",communication_penalty)
                 data = obs, rewards, dones, infos, values, actions, action_log_probs, rnn_states, rnn_states_critic,penalty_values, rnn_states_penalty,  communication_penalty
                 
                 for info in infos:
-                    for agent_info in info.values():
-                        tot_comms += agent_info['comms']
-                        tot_frames += agent_info['frames']
+                  tot_comms += info['comms']
 
                 self.easy_buffer.insert(action=np.clip(actions,-1,1), obs=obs, one_hot_list=repeated_matrix, reward=rewards,dones=dones)
                 # insert data into buffer
@@ -252,7 +251,7 @@ class MPERunner(Runner):
                 # print(np.mean(self.buffer[0].rewards))
                 print('Average_episode_rewards: ', np.mean(self.buffer[0].rewards) * self.episode_length)
                 # print((tot_frames - tot_comms)/tot_frames)
-                wandb.log({"com_savings":(tot_frames - tot_comms)/tot_frames},total_num_steps)
+                wandb.log({"com_savings":1 - tot_comms / (self.episode_length * self.num_agents * self.n_rollout_threads)},total_num_steps)
 
             # eval
             # self.writter.add_scalar('communication_savings', 1 - tot_comms / (self.episode_length * self.num_agents * self.n_rollout_threads), episode)

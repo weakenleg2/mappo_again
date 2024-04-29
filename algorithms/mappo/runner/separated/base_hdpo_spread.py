@@ -8,18 +8,15 @@ from tensorboardX import SummaryWriter
 
 from algorithms.mappo.utils.separate_buffer_dpo import SeparatedReplayBuffer
 from algorithms.mappo.utils.util import update_linear_schedule
-from algorithms.mappo.algorithms.r_mappo.algorithm.ops_utils import compute_clusters
+from gymnasium import spaces
 from algorithms.mappo.utils.simple_buffer import ReplayBuffer
 import math
-from gymnasium import spaces
-
-
 
 def _t2n(x):
     return x.detach().cpu().numpy()
 
 class Runner(object):
-    def __init__(self, config):
+    def __init__(self, most_common_index,config):
 
         self.all_args = config['all_args']
         self.envs = config['envs']
@@ -35,10 +32,8 @@ class Runner(object):
         self.use_obs_instead_of_state = self.all_args.use_obs_instead_of_state
         self.num_env_steps = self.all_args.num_env_steps
         self.episode_length = self.all_args.episode_length
-        # print(self.episode_length)
         self.n_trajectories = self.all_args.n_trajectories
         self.n_rollout_threads = self.all_args.n_rollout_threads
-        # print(self.n_rollout_threads)
         self.n_eval_rollout_threads = self.all_args.n_eval_rollout_threads
         self.use_linear_lr_decay = self.all_args.use_linear_lr_decay
         self.actor_hidden_size = self.all_args.actor_hidden_size
@@ -46,7 +41,7 @@ class Runner(object):
         self.use_wandb = self.all_args.use_wandb
         self.use_render = self.all_args.use_render
         self.recurrent_N = self.all_args.recurrent_N
-        self.model_count = min(10,self.all_args.num_agents)
+        # self.com_p = 0.05
 
         # interval
         self.save_interval = self.all_args.save_interval
@@ -73,6 +68,14 @@ class Runner(object):
             import imageio
             self.run_dir = config["run_dir"]
             self.gif_dir = str(self.run_dir / 'gifs')
+            self.save_dir = str(self.run_dir / 'models')
+            self.log_dir = str(self.run_dir / 'logs')
+            if not os.path.exists(self.log_dir):
+                os.makedirs(self.log_dir)
+            self.writter = SummaryWriter(self.log_dir)
+            self.save_dir = str(self.run_dir / 'models')
+            if not os.path.exists(self.save_dir):
+                os.makedirs(self.save_dir)
             if not os.path.exists(self.gif_dir):
                 os.makedirs(self.gif_dir)
         else:
@@ -91,36 +94,40 @@ class Runner(object):
 
         from algorithms.mappo.algorithms.r_mappo.r_mappo_dpo_simp import R_MAPPO as TrainAlgo
         from algorithms.mappo.algorithms.r_mappo.algorithm.rMAPPOPolicy_dpo_sep import R_MAPPOPolicy as Policy
-        print("share_observation_space: ", self.envs.share_observation_space)
+        # print("share_observation_space: ", self.envs.share_observation_space)
         print("observation_space: ", self.envs.observation_space('agent_0'))
         print("action_space: ", self.envs.action_space)
 
         self.policy = []
+        agent_classifications = most_common_index
 
+        # Dictionary to store policies for each class
+        class_policies = {}
         
         for agent_id in range(self.num_agents):
             # print()
-            share_observation_space = spaces.Box(
-            low=-np.float32(np.inf),
-            high=+np.float32(np.inf),
-            shape=(
-                self.envs.share_observation_space.shape[0]+self.envs.observation_space('agent_0').shape[0],
-            ),  # 24 is the observation space of each walker, 3 is the package observation space
-            dtype=np.float32,
-            ) if self.use_centralized_V else self.envs.observation_space('agent_0')
+            agent_class = agent_classifications[agent_id]
+            if agent_class not in class_policies:
+                share_observation_space = spaces.Box(
+                low=-np.float32(np.inf),
+                high=+np.float32(np.inf),
+                shape=(
+                    self.num_agents*self.envs.observation_space('agent_0').shape[0],
+                ),  # 24 is the observation space of each walker, 3 is the package observation space
+                dtype=np.float32, ) if self.use_centralized_V else self.envs.observation_space('agent_0')
             
             # print("self.envs.share_observation_space",self.envs.share_observation_space('agent_0'))
             # policy network
-            # we could think here is 32,5
-            po = Policy(self.all_args,
-                        self.envs.observation_space('agent_0'),
-                        share_observation_space,
-                        self.envs.action_space('agent_0'),
-                        device = self.device)
-            self.policy.append(po)
+                class_policy = Policy(self.all_args,
+                            self.envs.observation_space('agent_0'),
+                            share_observation_space,
+                            self.envs.action_space('agent_0'),
+                            device = self.device)
+                class_policies[agent_class] = class_policy
+
+            self.policy.append(class_policies[agent_class])
+
         print(self.policy)
-
-
         self.trainer = []
         self.buffer = []
         for agent_id in range(self.num_agents):
@@ -131,12 +138,11 @@ class Runner(object):
             low=-np.float32(np.inf),
             high=+np.float32(np.inf),
             shape=(
-                self.envs.share_observation_space.shape[0]+self.envs.observation_space('agent_0').shape[0],
+                self.num_agents*self.envs.observation_space('agent_0').shape[0],
             ),  # 24 is the observation space of each walker, 3 is the package observation space
             dtype=np.float32,
             ) if self.use_centralized_V else self.envs.observation_space('agent_0')
             # buffer
-            # share_observation_space = self.envs.share_observation_space if self.use_centralized_V else self.envs.observation_space('agent_0')
             bu = SeparatedReplayBuffer(self.all_args,
                                        self.envs.observation_space('agent_0'),
                                        share_observation_space,
@@ -173,7 +179,6 @@ class Runner(object):
                                                                 self.buffer[agent_id].masks[-1])
             next_penalty = _t2n(next_penalty)
             self.buffer[agent_id].compute_penalty(next_penalty, self.trainer[agent_id].value_normalizer)
-
     def train(self):
         train_infos = []
         for agent_id in range(self.num_agents):
@@ -183,15 +188,6 @@ class Runner(object):
             self.buffer[agent_id].after_update()
 
         return train_infos
-    
-    # def idx_train(self):
-    #     cluster_idx = compute_clusters(rb.get_all_transitions(), 
-    #                                    self.all_args.num_agents,self.num_mini_batch, None, 
-    #                                    3e-4, 10, 10, 0.0001, self.device)
-    #     for agent_id in range(self.num_agents):
-    #         self.policy[agent_id].laac_sample= cluster_idx.repeat(self.n_rollout_threads, 1)
-
-    
 
     def save(self):
         for agent_id in range(self.num_agents):

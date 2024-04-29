@@ -86,7 +86,7 @@ def main(args):
     parser = get_config()
     all_args = parse_args(args, parser)
     all_args.episode_length *= all_args.n_trajectories
-    torch.autograd.set_detect_anomaly(True, check_nan=True)
+    # torch.autograd.set_detect_anomaly(True, check_nan=True)
 
     if all_args.algorithm_name == "rmappo":
         print("u are choosing to use rmappo, we set use_recurrent_policy to be True")
@@ -182,7 +182,7 @@ def main(args):
     from algorithms.mappo.runner.separated.walker_pre import MPERunner as Runner
     runner = Runner(config)
     most_common_index = runner.run()
-    most_common_index = [0, 1, 1]
+    # most_common_index = [0, 1, 1]
     reset_all_seeds(all_args.seed)
     envs = reinitialize_environment(envs,all_args)
 

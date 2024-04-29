@@ -8,6 +8,7 @@ import numpy as np
 from pathlib import Path
 import torch
 from custom_envs.mpe import simple_spread_c_v2 
+from custom_envs.mpe import simple_formulation_c_v2
 from algorithms.mappo.config import get_config
 from algorithms.mappo.envs.mpe.MPE_env import MPEEnv
 from algorithms.mappo.envs.env_wrappers import SubprocVecEnv, DummyVecEnv
@@ -17,7 +18,7 @@ from algorithms.mappo.envs.env_wrappers import SubprocVecEnv, DummyVecEnv
 def make_train_env(all_args):
     def get_env_fn(rank):
         def init_env():
-            env = simple_spread_c_v2.parallel_env(N=all_args.num_agents, penalty_ratio=all_args.com_ratio,
+            env = simple_formulation_c_v2.parallel_env(N=all_args.num_agents, penalty_ratio=all_args.com_ratio,
                 full_comm=all_args.full_comm, local_ratio=all_args.local_ratio, continuous_actions=True)
             return env
         return init_env
@@ -50,7 +51,7 @@ def parse_args(args, parser):
                         default='simple_spread', help="Which scenario to run on")
     parser.add_argument("--num_landmarks", type=int, default=3)
     parser.add_argument('--num_agents', type=int,
-                        default=2, help="number of players")
+                        default=3, help="number of players")
 
     all_args = parser.parse_known_args(args)[0]
 
@@ -60,12 +61,13 @@ def main(args):
     parser = get_config()
     all_args = parse_args(args, parser)
     all_args.episode_length *= all_args.n_trajectories
-    torch.autograd.set_detect_anomaly(True, check_nan=True)
+    # torch.autograd.set_detect_anomaly(True, check_nan=True)
 
     if all_args.algorithm_name == "rmappo":
         print("u are choosing to use rmappo, we set use_recurrent_policy to be True")
         all_args.use_recurrent_policy = True
         all_args.use_naive_recurrent_policy = False
+        all_args.use_centralized_V = True
     elif all_args.algorithm_name == "mappo":
         print("u are choosing to use mappo, we set use_recurrent_policy & use_naive_recurrent_policy to be False")
         all_args.use_recurrent_policy = False 
@@ -99,7 +101,7 @@ def main(args):
         os.makedirs(str(run_dir))
 
     # wandb
-    all_args.use_wandb = False
+    all_args.use_wandb = True
     if all_args.use_wandb:
         run = wandb.init(config=all_args,
                          project=all_args.env_name,

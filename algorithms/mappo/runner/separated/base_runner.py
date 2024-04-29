@@ -8,15 +8,12 @@ from tensorboardX import SummaryWriter
 
 from algorithms.mappo.utils.separated_buffer import SeparatedReplayBuffer
 from algorithms.mappo.utils.util import update_linear_schedule
-from algorithms.mappo.algorithms.r_mappo.algorithm.ops_utils import compute_clusters
-from algorithms.mappo.utils.simple_buffer import ReplayBuffer
-
 
 def _t2n(x):
     return x.detach().cpu().numpy()
 
 class Runner(object):
-    def __init__(self, most_common_index,config):
+    def __init__(self, config):
 
         self.all_args = config['all_args']
         self.envs = config['envs']
@@ -50,31 +47,11 @@ class Runner(object):
 
         # dir
         self.model_dir = self.all_args.model_dir
-        self.pretrain_dur = self.all_args.pretrain_dur
-        self.vae_lr = self.all_args.vae_lr
-        self.kl = self.all_args.vae_kl
-        self.vae_epoch = self.all_args.vae_epoch
-        self.clusters = self.all_args.clusters
-        self.vae_zfeatures = self.all_args.vae_zfeatures
-        self.vae_batch = self.all_args.vae_batchsize
-        self.mid_gap = self.all_args.mid_gap
-        self.easy_buffer = ReplayBuffer(self.all_args,self.envs.observation_space('agent_0'),
-                                       
-                                       self.envs.action_space('agent_0')
-                                       )
-        
+
         if self.use_render:
             import imageio
             self.run_dir = config["run_dir"]
             self.gif_dir = str(self.run_dir / 'gifs')
-            self.save_dir = str(self.run_dir / 'models')
-            self.log_dir = str(self.run_dir / 'logs')
-            if not os.path.exists(self.log_dir):
-                os.makedirs(self.log_dir)
-            self.writter = SummaryWriter(self.log_dir)
-            self.save_dir = str(self.run_dir / 'models')
-            if not os.path.exists(self.save_dir):
-                os.makedirs(self.save_dir)
             if not os.path.exists(self.gif_dir):
                 os.makedirs(self.gif_dir)
         else:
@@ -96,31 +73,17 @@ class Runner(object):
 
 
         self.policy = []
-        
-        agent_classifications = most_common_index
-
-        # Dictionary to store policies for each class
-        class_policies = {}
-
         for agent_id in range(self.num_agents):
-            # Get the class of the current agent
-            agent_class = agent_classifications[agent_id]
+            share_observation_space = self.envs.share_observation_space if self.use_centralized_V else self.envs.observation_space('agent_0')
+            # policy network
+            po = Policy(self.all_args,
+                        self.envs.observation_space('agent_0'),
+                        share_observation_space,
+                        self.envs.action_space('agent_0'),
+                        device = self.device)
+            self.policy.append(po)
 
-            # Check if we already have a policy for this class
-            if agent_class not in class_policies:
-                # Create a new policy for this class
-                share_observation_space = self.envs.share_observation_space if self.use_centralized_V else self.envs.observation_space('agent_0')
-                class_policy = Policy(self.all_args,
-                                    self.envs.observation_space('agent_0'),
-                                    share_observation_space,
-                                    self.envs.action_space('agent_0'),
-                                    device=self.device)
-                class_policies[agent_class] = class_policy
 
-            # Assign the class policy to the agent
-            self.policy.append(class_policies[agent_class])
-
-        print(self.policy)
         self.trainer = []
         self.buffer = []
         for agent_id in range(self.num_agents):
@@ -128,6 +91,7 @@ class Runner(object):
             tr = TrainAlgo(self.all_args, self.policy[agent_id], device = self.device)
             # buffer
             share_observation_space = self.envs.share_observation_space if self.use_centralized_V else self.envs.observation_space('agent_0')
+            print("share_observation_space",share_observation_space)
             bu = SeparatedReplayBuffer(self.all_args,
                                        self.envs.observation_space('agent_0'),
                                        share_observation_space,
@@ -196,8 +160,6 @@ class Runner(object):
         for agent_id in range(self.num_agents):
             for k, v in train_infos[agent_id].items():
                 infos[k][str(agent_id)] = v
-        # for k in infos.keys():
-        #     self.writter.add_scalars(k, infos[k], total_num_steps)
         for k in infos.keys():
             if self.use_wandb:
                 wandb.log({k: infos[k]}, step=total_num_steps)

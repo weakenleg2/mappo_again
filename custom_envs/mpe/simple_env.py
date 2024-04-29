@@ -89,7 +89,7 @@ class SimpleEnv(AECEnv):
             if not agent.silent:
                 space_dim += self.world.dim_c
 
-            obs_dim = len(self.scenario.observation(agent, self.world))
+            obs_dim = len(self.scenario.observation(agent, self.world,None))
             state_dim += obs_dim
 
             self.action_spaces[agent.name] = spaces.Tuple([
@@ -155,6 +155,7 @@ class SimpleEnv(AECEnv):
         self.truncations = {name: False for name in self.agents}
         self.infos = {name: {} for name in self.agents}
         self.infos['comms'] = 0
+        self.infos['frames'] = 0
 
         self.agent_selection = self._agent_selector.reset()
         self.steps = 0
@@ -236,9 +237,10 @@ class SimpleEnv(AECEnv):
         self.current_actions[current_idx] = action
 
         if next_idx == 0:
-            # self.infos['comms'] = 0
+            self.infos['comms'] = 0
             self._execute_world_step()
             self.steps += 1
+            self.infos['frames'] = self.steps
             if self.steps >= self.max_cycles:
                 for a in self.agents:
                     self.terminations[a] = True

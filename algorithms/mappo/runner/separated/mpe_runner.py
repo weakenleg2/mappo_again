@@ -17,7 +17,7 @@ class MPERunner(Runner):
     def __init__(self, config):
         super(MPERunner, self).__init__(config)
 
-    def defaultdict_to_tensor(self, x, iterable=True):
+    def dict_to_tensor(self, x, iterable=True):
         #obs_shape = self.envs.observation_space('agent_0').shape
         if iterable:
           obs_shape = x[0]['agent_0'].shape
@@ -31,43 +31,6 @@ class MPERunner(Runner):
           output[i] = d
 
         return output
-    def dict_to_tensor(self, x, iterable=True):
-        if iterable:
-            num_samples = len(x)
-        else:
-            num_samples = 1
-            x = [x]  # Wrap in a list for consistency
-
-        # Check if x is a list of dictionaries
-        if not all(isinstance(item, dict) for item in x):
-            raise ValueError("Input must be a list of dictionaries.")
-
-        # Check if the dictionary values are floats or arrays
-        first_value = next(iter(next(iter(x)).values()))
-        if isinstance(first_value, float):
-            # Handling for dictionaries of floats
-            output = np.zeros((num_samples, self.num_agents))
-            for i, d in enumerate(x):
-                output[i] = list(d.values())
-        elif isinstance(first_value, np.ndarray):
-            # Handling for dictionaries of arrays
-            max_obs_size = max(obs.shape[0] for d in x for obs in d.values())
-            output = []
-            for i in range(num_samples):
-                sample = []
-                for agent, obs in x[i].items():
-                    # Pad observation if necessary
-                    if obs.shape[0] < max_obs_size:
-                        padding = np.zeros(max_obs_size - obs.shape[0], dtype=obs.dtype)
-                        obs_padded = np.concatenate([obs, padding])
-                    else:
-                        obs_padded = obs
-                    sample.append(obs_padded)
-                output.append(np.stack(sample))
-        else:
-            raise ValueError("The values in the dictionary must be either floats or numpy arrays.")
-
-        return np.array(output)
 
     def run(self):
         self.warmup()
@@ -88,19 +51,15 @@ class MPERunner(Runner):
                     step)
 
                 # Obser reward and next obs
-                # print("actions_env",actions_env)
                 obs, rewards, dones, infos = self.envs.step(actions_env)
-                # print(rewards)
 
                 obs = self.dict_to_tensor(obs)
-                rewards = self.defaultdict_to_tensor(rewards, False)
+                rewards = self.dict_to_tensor(rewards, False)
                 rewards = np.expand_dims(rewards, -1)
-                # print("(self.episode_length * self.num_agents * self.n_rollout_threads)",(self.episode_length * self.num_agents * self.n_rollout_threads))
 
                 data = obs, rewards, dones, infos, values, actions, action_log_probs, rnn_states, rnn_states_critic
                 for info in infos:
                   tot_comms += info['comms']
-                # print("infos",infos)
 
                 # insert data into buffer
                 self.insert(data)
@@ -140,11 +99,11 @@ class MPERunner(Runner):
                         #train_infos[agent_id].update(
                             #{'individual_rewards': np.mean(idv_rews)})
                         train_infos[agent_id].update({"average_episode_rewards": np.mean(
-                            self.buffer[agent_id].rewards) * 25})
-                        
+                            self.buffer[agent_id].rewards) * self.episode_length})
                 self.log_train(train_infos, total_num_steps)
-                # check?
+                print('Average_episode_rewards: ', np.mean(self.buffer[0].rewards) * self.episode_length)
                 wandb.log({"com_savings":1 - tot_comms / (self.episode_length * self.num_agents * self.n_rollout_threads)},total_num_steps)
+
 
 
             # eval
@@ -155,9 +114,7 @@ class MPERunner(Runner):
     def warmup(self):
         # reset env
         obs = self.envs.reset()
-        # print(obs)
         obs = self.dict_to_tensor(obs)
-        # print(obs)
 
         #last_actions = np.zeros(
           #(self.n_rollout_threads, self.num_agents * (flatdim(self.envs.action_space('agent_0')) - 1)))
@@ -195,10 +152,8 @@ class MPERunner(Runner):
             # [agents, envs, dim]
             values.append(_t2n(value))
             action = _t2n(action)
-            # print(action)
             # rearrange action
             action_space = self.envs.action_space('agent_' + str(agent_id))
-            # print(action_space)
             if action_space.__class__.__name__ == 'MultiDiscrete':
                 for i in range(self.envs.action_space[agent_id].shape):
                     uc_action_env = np.eye(
@@ -213,7 +168,7 @@ class MPERunner(Runner):
                     np.eye(action_space.n)[action], 1)
             else:
                 action_env = np.clip(action, -1, 1)
-            # print("action",action.shape)
+            
             actions.append(action)
             temp_actions_env.append(action_env)
             action_log_probs.append(_t2n(action_log_prob))

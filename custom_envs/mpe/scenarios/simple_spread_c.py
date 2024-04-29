@@ -72,12 +72,15 @@ class raw_env(SimpleEnv, EzPickle):
         packet_drop_prob=0.1,
         continuous_actions=False,
         render_mode=None,
-    ):
+        ):
         EzPickle.__init__(
-            self, N=N, penalty_ratio=penalty_ratio,  
-            local_ratio=local_ratio, full_comm=full_comm,
+            self, N=N, 
+            penalty_ratio=penalty_ratio,  
+            local_ratio=local_ratio, 
+            full_comm=full_comm,
             delay = delay,packet_drop_prob=packet_drop_prob,
-            max_cycles=max_cycles, continuous_actions=continuous_actions, 
+            max_cycles=max_cycles, 
+            continuous_actions=continuous_actions, 
             render_mode=render_mode
         )
         assert (
@@ -214,8 +217,10 @@ class Scenario(BaseScenario):
 
         #Add penalty for communication
         if global_reward and agent.action.c[0] > agent.action.c[1]:
-        # if agent.action.c[0] > agent.action.c[1]:
-          rew -= self.penalty_ratio
+            # print(self.penalty_ratio)
+            rew += global_reward * self.penalty_ratio
+
+                  
         return rew
 
     def global_reward(self, world):
